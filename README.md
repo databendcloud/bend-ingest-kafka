@@ -5,7 +5,7 @@ Ingest kafka data into databend
 ## Installation
 
 ```shell
-go get https://databendcloud/bend-ingest-kafka
+go get https://github.com/databendcloud/bend-ingest-kafka
 ```
 
 ## Usage
