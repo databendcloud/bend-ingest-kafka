@@ -37,7 +37,7 @@ CREATE TABLE test_ingest (
 bend-ingest-kafka
   --kafka-bootstrap-servers="127.0.0.1:9092,127.0.0.2:9092"\
   --kafka-topic="Your Topic"\
-  --kafka-consumer-group= "consumer group"\
+  --kafka-consumer-group= "Consumer Group"\
   --databend-dsn="http://root:root@127.0.0.1:8000"\
   --databend-table="db1.tbl" \
   --data-format=”json“ \
