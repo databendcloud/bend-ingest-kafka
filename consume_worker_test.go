@@ -125,7 +125,7 @@ func TestConsumeKafka(t *testing.T) {
 		DataFormat:            "json",
 		BatchMaxInterval:      100 * time.Second,
 	}, "worker1")
-	w.Run(context.TODO())
+	w.stepBatch(context.TODO())
 
 	result, err := db.Exec("select * from test_ingest")
 	assert.NoError(t, err)

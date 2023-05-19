@@ -26,7 +26,31 @@ func NewConsumeWorker(cfg *Config, name string) *ConsumeWorker {
 }
 
 func (c *ConsumeWorker) Close() {
+	log.Printf("exited")
 	c.batchReader.Close()
+}
+
+func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
+	batch, err := c.batchReader.ReadBatch(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
+		return err
+	}
+
+	if batch.Empty() {
+		return err
+	}
+
+	if err := c.ig.IngestData(batch.messages); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
+		return err
+	}
+
+	if err := batch.commitFunc(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
+		return err
+	}
+	return nil
 }
 
 func (c *ConsumeWorker) Run(ctx context.Context) {
@@ -35,29 +59,10 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Fprintf(os.Stderr, "exited")
 			c.Close()
 			return
 		default:
-			batch, err := c.batchReader.ReadBatch(ctx)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
-				continue
-			}
-
-			if batch.Empty() {
-				continue
-			}
-
-			if err := c.ig.IngestData(batch.messages); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
-				continue
-			}
-
-			if err := batch.commitFunc(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
-				continue
-			}
+			c.stepBatch(ctx)
 		}
 	}
 }
