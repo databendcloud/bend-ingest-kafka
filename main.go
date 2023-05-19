@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -30,20 +32,29 @@ type Config struct {
 	BatchSize             int
 	BatchMaxInterval      time.Duration
 	DataFormat            string
+	Workers               int
 }
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		sigch := make(chan os.Signal, 1)
-		signal.Notify(sigch, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGUSR1)
+		signal.Notify(sigch, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM)
 		<-sigch
 		cancel()
 	}()
 
 	cfg := parseConfig()
-	w := NewConsumeWorker(cfg)
-	w.Run(ctx)
+	wg := sync.WaitGroup{}
+	wg.Add(cfg.Workers)
+	for i := 0; i < cfg.Workers; i++ {
+		w := NewConsumeWorker(cfg, fmt.Sprintf("worker-%d", i))
+		go func() {
+			w.Run(ctx)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
 }
 
 func parseConfig() *Config {
@@ -51,10 +62,11 @@ func parseConfig() *Config {
 
 	flag.StringVar(&cfg.KafkaBootstrapServers, "kafka-bootstrap-servers", "127.0.0.1:64103", "Kafka bootstrap servers")
 	flag.StringVar(&cfg.KafkaTopic, "kafka-topic", "test", "Kafka topic")
-	flag.StringVar(&cfg.KafkaConsumerGroup, "kafka-consumer-group", "", "Kafkaconsumer group")
+	flag.StringVar(&cfg.KafkaConsumerGroup, "kafka-consumer-group", "kafka-bend-ingest", "Kafkaconsumer group")
 	flag.StringVar(&cfg.DatabendDSN, "databend-dsn", "http://root:root@localhost:8002", "Databend DSN")
 	flag.StringVar(&cfg.DatabendTable, "databend-table", "test_ingest", "Databend table")
 	flag.IntVar(&cfg.BatchSize, "batch-size", 1024, "Batch size")
+	flag.IntVar(&cfg.Workers, "workers", 1, "Number of workers")
 	flag.DurationVar(&cfg.BatchMaxInterval, "batch-max-interval", 30*time.Second, "Batch max interval")
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
 
