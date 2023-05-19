@@ -31,6 +31,7 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(os.Stderr, "exited")
+			c.Close()
 			return
 		default:
 			batch, err := c.batchReader.ReadBatch(ctx)
