@@ -31,21 +31,25 @@ func (c *ConsumeWorker) Close() {
 }
 
 func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
+	log.Printf("DEBUG: read batch")
 	batch, err := c.batchReader.ReadBatch(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
 		return err
 	}
+	log.Printf("DEBUG: got batch")
 
 	if batch.Empty() {
 		return err
 	}
 
+	log.Printf("DEBUG: ingest data")
 	if err := c.ig.IngestData(batch.messages); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
 		return err
 	}
 
+	log.Printf("DEBUG: commit")
 	if err := batch.commitFunc(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
 		return err
