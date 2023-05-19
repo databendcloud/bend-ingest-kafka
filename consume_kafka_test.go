@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/segmentio/kafka-go"
-	"github.com/test-go/testify/assert"
 	"log"
 	"testing"
+
+	"github.com/segmentio/kafka-go"
+	"github.com/test-go/testify/assert"
 )
 
 func TestProduceMessage(t *testing.T) {
@@ -61,7 +62,10 @@ func TestConsumeKafka(t *testing.T) {
 	defer execute(db, "drop table if exists test_ingest;")
 	produceMessage()
 	fmt.Println("start consuming data")
-	ConsumeAndIngestDataFromKafka()
+
+	cfg := parseConfig()
+	c := NewConsumer(cfg)
+	c.ConsumeMessages()
 
 	result, err := db.Exec("select * from test_ingest")
 	assert.NoError(t, err)

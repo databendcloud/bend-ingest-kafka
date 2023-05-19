@@ -29,7 +29,10 @@ type Config struct {
 }
 
 func main() {
-	ConsumeAndIngestDataFromKafka()
+	cfg := parseConfig()
+
+	c := NewConsumer(cfg)
+	c.ConsumeMessages()
 }
 
 func parseConfig() *Config {
@@ -40,7 +43,7 @@ func parseConfig() *Config {
 	flag.StringVar(&cfg.KafkaConsumerGroup, "kafka-consumer-group", "", "Kafkaconsumer group")
 	flag.StringVar(&cfg.DatabendDSN, "databend-dsn", "http://root:root@localhost:8002", "Databend DSN")
 	flag.StringVar(&cfg.DatabendTable, "databend-table", "test_ingest", "Databend table")
-	flag.IntVar(&cfg.BatchSize, "batch-size", 1, "Batch size")
+	flag.IntVar(&cfg.BatchSize, "batch-size", 1024, "Batch size")
 	flag.DurationVar(&cfg.BatchMaxInterval, "batch-max-interval", 30*time.Second, "Batch max interval")
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
 

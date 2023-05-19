@@ -3,8 +3,9 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"github.com/test-go/testify/assert"
 	"testing"
+
+	"github.com/test-go/testify/assert"
 )
 
 func TestParseKafkaServers(t *testing.T) {
@@ -34,6 +35,7 @@ func TestIngestData(t *testing.T) {
 	execute(db, "create table if not exists test_ingest(name varchar, age int, isMarried boolean);")
 	defer execute(db, "drop table if exists test_ingest;")
 
-	err = cfg.IngestData(testData)
+	ig := NewIngester(&cfg)
+	err = ig.IngestData(testData)
 	assert.NoError(t, err)
 }

@@ -3,35 +3,46 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/segmentio/kafka-go"
-	"github.com/sirupsen/logrus"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/segmentio/kafka-go"
+	"github.com/sirupsen/logrus"
 )
 
-func ConsumeAndIngestDataFromKafka() {
-	// parse config
-	cfg := parseConfig()
+type Consumer struct {
+	cfg *Config
+	ig  Ingester
+}
 
+func NewConsumer(cfg *Config) *Consumer {
+	ig := NewIngester(cfg)
+	return &Consumer{
+		cfg: cfg,
+		ig:  ig,
+	}
+}
+
+func (c *Consumer) ConsumeMessages() {
 	// consume data from kafka
 	k := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
-		GroupID: cfg.KafkaConsumerGroup,
-		Topic:   cfg.KafkaTopic,
+		Brokers: parseKafkaServers(c.cfg.KafkaBootstrapServers),
+		GroupID: c.cfg.KafkaConsumerGroup,
+		Topic:   c.cfg.KafkaTopic,
 	})
 	defer k.Close()
 
 	// handle data
 	var batch []string
-	batchTicker := time.NewTicker(cfg.BatchMaxInterval)
+	batchTicker := time.NewTicker(c.cfg.BatchMaxInterval)
 	defer batchTicker.Stop()
 
 	for {
 		select {
 		case <-batchTicker.C:
 			// >BatchMaxInterval, Ingest the batch data
-			if err := cfg.IngestData(batch); err != nil {
+			if err := c.ig.IngestData(batch); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to ingest data into Databend: %v\n", err)
 			}
 			batch = nil
@@ -57,8 +68,8 @@ func ConsumeAndIngestDataFromKafka() {
 			batch = append(batch, strings.ReplaceAll(data, "\n", ""))
 
 			// > batchSize, commit the data
-			if len(batch) >= cfg.BatchSize {
-				if err := cfg.IngestData(batch); err != nil {
+			if len(batch) >= c.cfg.BatchSize {
+				if err := c.ig.IngestData(batch); err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to ingest data into Databend: %v\n", err)
 				}
 				batch = nil
