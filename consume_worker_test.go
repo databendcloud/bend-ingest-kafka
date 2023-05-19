@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/segmentio/kafka-go"
@@ -26,9 +28,34 @@ func prepareConsumeWorkerTest() *consumeWorkerTest {
 	if testKafkaBroker == "" {
 		testKafkaBroker = "127.0.0.1:64103"
 	}
-	return &consumeWorkerTest{
+
+	tt := &consumeWorkerTest{
 		databendDSN:  testDatabendDSN,
 		kafkaBrokers: []string{testKafkaBroker},
+	}
+	tt.setupKafkaTopic("test")
+	return tt
+}
+
+func (tt *consumeWorkerTest) setupKafkaTopic(topic string) {
+	conn, err := kafka.Dial("tcp", tt.kafkaBrokers[0])
+	if err != nil {
+		panic(err)
+	}
+	controller, err := conn.Controller()
+	if err != nil {
+		panic(err)
+	}
+	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	if err != nil {
+		panic(err.Error())
+	}
+	defer controllerConn.Close()
+	topicConfigs := []kafka.TopicConfig{{Topic: topic, NumPartitions: 1, ReplicationFactor: 1}}
+
+	err = controllerConn.CreateTopics(topicConfigs...)
+	if err != nil {
+		log.Printf(err.Error())
 	}
 }
 
