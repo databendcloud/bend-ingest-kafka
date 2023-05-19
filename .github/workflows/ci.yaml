@@ -20,6 +20,32 @@ jobs:
         ports:
           - 8000:8000
           - 9000:9000
+      # https://stackoverflow.com/questions/70233368/how-to-access-kafka-service-in-github-action
+      zookeeper:
+        image: bitnami/zookeeper
+        ports:
+          - 2181:2181
+        env:
+          ALLOW_ANONYMOUS_LOGIN: yes
+        options: >-
+          --health-cmd "echo mntr | nc -w 2 -q 2 localhost 2181"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      kafka:
+        image: bitnami/kafka
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "kafka-broker-api-versions.sh --version"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        env:
+          KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+          ALLOW_PLAINTEXT_LISTENER: yes
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
 
     steps:
       - name: Checkout
