@@ -8,71 +8,123 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	"github.com/sirupsen/logrus"
 )
 
-type Consumer struct {
-	cfg *Config
-	ig  Ingester
+type messagesBatch struct {
+	messages           []string
+	commitFunc         func(context.Context) error
+	firstMessageOffset int64
+	lastMessageOffset  int64
 }
 
-func NewConsumer(cfg *Config) *Consumer {
+func (b *messagesBatch) Empty() bool {
+	return len(b.messages) == 0
+}
+
+type ConsumeWorker struct {
+	cfg         *Config
+	ig          Ingester
+	kafkaReader *kafka.Reader
+}
+
+func NewConsumeWorker(cfg *Config) *ConsumeWorker {
 	ig := NewIngester(cfg)
-	return &Consumer{
-		cfg: cfg,
-		ig:  ig,
+	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
+		GroupID: cfg.KafkaConsumerGroup,
+		Topic:   cfg.KafkaTopic,
+	})
+	return &ConsumeWorker{
+		cfg:         cfg,
+		ig:          ig,
+		kafkaReader: kafkaReader,
 	}
 }
 
-func (c *Consumer) ConsumeMessages() {
-	// consume data from kafka
-	k := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: parseKafkaServers(c.cfg.KafkaBootstrapServers),
-		GroupID: c.cfg.KafkaConsumerGroup,
-		Topic:   c.cfg.KafkaTopic,
-	})
-	defer k.Close()
+func (c *ConsumeWorker) Close() {
+	c.kafkaReader.Close()
+}
 
-	// handle data
-	var batch []string
-	batchTicker := time.NewTicker(c.cfg.BatchMaxInterval)
-	defer batchTicker.Stop()
+func (c *ConsumeWorker) readBatch(ctx context.Context) (*messagesBatch, error) {
+	var (
+		lastMessage        *kafka.Message
+		lastMessageOffset  int64
+		firstMessageOffset int64
+		batch              = []string{}
+		batchTimeout       = time.NewTimer(c.cfg.BatchMaxInterval)
+	)
+	defer batchTimeout.Stop()
 
+_loop:
 	for {
 		select {
-		case <-batchTicker.C:
-			// >BatchMaxInterval, Ingest the batch data
-			if err := c.ig.IngestData(batch); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to ingest data into Databend: %v\n", err)
-			}
-			batch = nil
-
+		case <-ctx.Done():
+			fmt.Printf("exited")
+			return nil, nil
+		case <-batchTimeout.C:
+			break _loop
 		default:
-			// < BatchMaxInterval, continue to consume from kafka
-			m, err := k.ReadMessage(context.Background())
+			m, err := c.kafkaReader.FetchMessage(ctx)
 			if err != nil {
-				if err.Error() == "context canceled" || err.Error() == "EOF" {
-					// end
-					logrus.Info(err.Error())
-					return
-				}
 				fmt.Fprintf(os.Stderr, "Failed to read message from Kafka: %v\n", err)
 				continue
 			}
+			if firstMessageOffset == 0 {
+				firstMessageOffset = m.Offset
+			}
 
-			// unmarshal json data
 			data := string(m.Value)
-			fmt.Println(string(m.Value))
-
-			// add the data to batch
 			batch = append(batch, strings.ReplaceAll(data, "\n", ""))
+			lastMessage = &m
 
-			// > batchSize, commit the data
 			if len(batch) >= c.cfg.BatchSize {
-				if err := c.ig.IngestData(batch); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to ingest data into Databend: %v\n", err)
-				}
-				batch = nil
+				break _loop
+			}
+		}
+	}
+
+	commitFunc := func(_ context.Context) error { return nil }
+	if lastMessage != nil {
+		commitFunc = func(ctx context.Context) error {
+			return c.kafkaReader.CommitMessages(ctx, *lastMessage)
+		}
+		lastMessageOffset = lastMessage.Offset
+	}
+
+	return &messagesBatch{
+		messages:           batch,
+		commitFunc:         commitFunc,
+		firstMessageOffset: firstMessageOffset,
+		lastMessageOffset:  lastMessageOffset,
+	}, nil
+}
+
+func (c *ConsumeWorker) Run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintf(os.Stderr, "exited")
+			return
+		default:
+			batch, err := c.readBatch(ctx)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
+				continue
+			}
+
+			if batch.Empty() {
+				return
+			}
+
+			// TODO: make it at least once
+			if err := c.ig.IngestData(batch.messages); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
+				continue
+			}
+
+			if err := batch.commitFunc(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
+				continue
 			}
 		}
 	}

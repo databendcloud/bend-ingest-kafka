@@ -64,8 +64,8 @@ func TestConsumeKafka(t *testing.T) {
 	fmt.Println("start consuming data")
 
 	cfg := parseConfig()
-	c := NewConsumer(cfg)
-	c.ConsumeMessages()
+	w := NewConsumeWorker(cfg)
+	w.Run(context.TODO())
 
 	result, err := db.Exec("select * from test_ingest")
 	assert.NoError(t, err)

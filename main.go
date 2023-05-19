@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -29,10 +33,17 @@ type Config struct {
 }
 
 func main() {
-	cfg := parseConfig()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		sigch := make(chan os.Signal, 1)
+		signal.Notify(sigch, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGUSR1)
+		<-sigch
+		cancel()
+	}()
 
-	c := NewConsumer(cfg)
-	c.ConsumeMessages()
+	cfg := parseConfig()
+	w := NewConsumeWorker(cfg)
+	w.Run(ctx)
 }
 
 func parseConfig() *Config {
