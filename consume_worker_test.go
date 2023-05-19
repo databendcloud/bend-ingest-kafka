@@ -46,7 +46,7 @@ func (tt *consumeWorkerTest) setupKafkaTopic(topic string) {
 	if err != nil {
 		panic(err)
 	}
-	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(controller.Port)))
 	if err != nil {
 		panic(err.Error())
 	}
