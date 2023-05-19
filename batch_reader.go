@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -68,6 +69,7 @@ _loop:
 			break _loop
 		default:
 			m, err := br.kafkaReader.FetchMessage(ctx)
+			log.Printf("got message: %v", m)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to read message from Kafka: %v\n", err)
 				continue
