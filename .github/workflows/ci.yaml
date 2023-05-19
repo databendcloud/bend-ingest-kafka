@@ -20,6 +20,8 @@ jobs:
         ports:
           - 8000:8000
           - 9000:9000
+      kafka:
+        image: bitnami/kafka
       
     steps:
       - name: Checkout
@@ -30,7 +32,7 @@ jobs:
 
       - name: Verify Service Running
         run: |
-          sleep 30
+          sleep 60
           cid=$(docker ps -a | grep databend | cut -d' ' -f1)
           docker logs ${cid}
           cid=$(docker ps -a | grep kafka | cut -d' ' -f1)
