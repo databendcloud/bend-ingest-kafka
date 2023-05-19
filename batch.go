@@ -10,48 +10,51 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-type messagesBatch struct {
+type MessagesBatch struct {
 	messages           []string
 	commitFunc         func(context.Context) error
 	firstMessageOffset int64
 	lastMessageOffset  int64
 }
 
-func (b *messagesBatch) Empty() bool {
+func (b *MessagesBatch) Empty() bool {
 	return len(b.messages) == 0
 }
 
-type ConsumeWorker struct {
+type BatchReader interface {
+	ReadBatch(ctx context.Context) (*MessagesBatch, error)
+
+	Close() error
+}
+
+type KafkaBatchReader struct {
 	cfg         *Config
-	ig          Ingester
 	kafkaReader *kafka.Reader
 }
 
-func NewConsumeWorker(cfg *Config) *ConsumeWorker {
-	ig := NewIngester(cfg)
+func NewKafkaBatchReader(cfg *Config) *KafkaBatchReader {
 	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
 		GroupID: cfg.KafkaConsumerGroup,
 		Topic:   cfg.KafkaTopic,
 	})
-	return &ConsumeWorker{
+	return &KafkaBatchReader{
 		cfg:         cfg,
-		ig:          ig,
 		kafkaReader: kafkaReader,
 	}
 }
 
-func (c *ConsumeWorker) Close() {
-	c.kafkaReader.Close()
+func (br *KafkaBatchReader) Close() error {
+	return br.kafkaReader.Close()
 }
 
-func (c *ConsumeWorker) readBatch(ctx context.Context) (*messagesBatch, error) {
+func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
 	var (
 		lastMessage        *kafka.Message
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              = []string{}
-		batchTimeout       = time.NewTimer(c.cfg.BatchMaxInterval)
+		batchTimeout       = time.NewTimer(br.cfg.BatchMaxInterval)
 	)
 	defer batchTimeout.Stop()
 
@@ -64,7 +67,7 @@ _loop:
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			m, err := c.kafkaReader.FetchMessage(ctx)
+			m, err := br.kafkaReader.FetchMessage(ctx)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to read message from Kafka: %v\n", err)
 				continue
@@ -77,7 +80,7 @@ _loop:
 			batch = append(batch, strings.ReplaceAll(data, "\n", ""))
 			lastMessage = &m
 
-			if len(batch) >= c.cfg.BatchSize {
+			if len(batch) >= br.cfg.BatchSize {
 				break _loop
 			}
 		}
@@ -86,46 +89,15 @@ _loop:
 	commitFunc := func(_ context.Context) error { return nil }
 	if lastMessage != nil {
 		commitFunc = func(ctx context.Context) error {
-			return c.kafkaReader.CommitMessages(ctx, *lastMessage)
+			return br.kafkaReader.CommitMessages(ctx, *lastMessage)
 		}
 		lastMessageOffset = lastMessage.Offset
 	}
 
-	return &messagesBatch{
+	return &MessagesBatch{
 		messages:           batch,
 		commitFunc:         commitFunc,
 		firstMessageOffset: firstMessageOffset,
 		lastMessageOffset:  lastMessageOffset,
 	}, nil
-}
-
-func (c *ConsumeWorker) Run(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Fprintf(os.Stderr, "exited")
-			return
-		default:
-			batch, err := c.readBatch(ctx)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
-				continue
-			}
-
-			if batch.Empty() {
-				return
-			}
-
-			// TODO: make it at least once
-			if err := c.ig.IngestData(batch.messages); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
-				continue
-			}
-
-			if err := batch.commitFunc(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
-				continue
-			}
-		}
-	}
 }
