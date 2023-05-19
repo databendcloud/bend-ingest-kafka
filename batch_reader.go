@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -49,6 +48,14 @@ func (br *KafkaBatchReader) Close() error {
 	return br.kafkaReader.Close()
 }
 
+func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout time.Duration) (*kafka.Message, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	m, err := br.kafkaReader.FetchMessage(ctx)
+	return &m, err
+}
+
 func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
 	var (
 		lastMessage        *kafka.Message
@@ -68,8 +75,7 @@ _loop:
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			m, err := br.kafkaReader.FetchMessage(ctx)
-			log.Printf("got message: %v", m)
+			m, err := br.fetchMessageWithTimeout(ctx, br.cfg.BatchMaxInterval)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to read message from Kafka: %v\n", err)
 				continue
@@ -80,7 +86,7 @@ _loop:
 
 			data := string(m.Value)
 			batch = append(batch, strings.ReplaceAll(data, "\n", ""))
-			lastMessage = &m
+			lastMessage = m
 
 			if len(batch) >= br.cfg.BatchSize {
 				break _loop
