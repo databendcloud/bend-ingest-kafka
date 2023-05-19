@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/test-go/testify/assert"
@@ -113,8 +114,17 @@ func TestConsumeKafka(t *testing.T) {
 	produceMessage()
 	fmt.Println("start consuming data")
 
-	cfg := parseConfig()
-	w := NewConsumeWorker(cfg, "worker1")
+	w := NewConsumeWorker(&Config{
+		DatabendDSN:           tt.databendDSN,
+		DatabendTable:         "test_ingest",
+		KafkaTopic:            "test",
+		KafkaBootstrapServers: tt.kafkaBrokers[0],
+		KafkaConsumerGroup:    "test",
+		BatchSize:             10,
+		Workers:               1,
+		DataFormat:            "json",
+		BatchMaxInterval:      100 * time.Second,
+	}, "worker1")
 	w.Run(context.TODO())
 
 	result, err := db.Exec("select * from test_ingest")
