@@ -123,7 +123,7 @@ func TestConsumeKafka(t *testing.T) {
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
-		BatchMaxInterval:      100 * time.Second,
+		BatchMaxInterval:      10 * time.Second,
 	}, "worker1")
 	log.Printf("start consume")
 	w.stepBatch(context.TODO())
