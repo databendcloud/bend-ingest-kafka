@@ -20,13 +20,12 @@ jobs:
         ports:
           - 8000:8000
           - 9000:9000
-
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
-     - name: Start Bitname Kafka
-       uses: bbcCorp/kafka-actions@v1
+      - name: Start Bitname Kafka
+        uses: bbcCorp/kafka-actions@v1
 
       - name: Verify Service Running
         run: |
