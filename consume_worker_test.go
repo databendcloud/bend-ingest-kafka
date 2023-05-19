@@ -5,24 +5,45 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"testing"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/test-go/testify/assert"
 )
 
+type consumeWorkerTest struct {
+	databendDSN  string
+	kafkaBrokers []string
+}
+
+func prepareConsumeWorkerTest() *consumeWorkerTest {
+	testDatabendDSN := os.Getenv("TEST_DATABEND_DSN")
+	if testDatabendDSN == "" {
+		testDatabendDSN = "http://root:root@localhost:8002"
+	}
+	testKafkaBroker := os.Getenv("TEST_KAFKA_BROKER")
+	if testKafkaBroker == "" {
+		testKafkaBroker = "127.0.0.1:64103"
+	}
+	return &consumeWorkerTest{
+		databendDSN:  testDatabendDSN,
+		kafkaBrokers: []string{testKafkaBroker},
+	}
+}
+
 func TestProduceMessage(t *testing.T) {
 	produceMessage()
 }
 
 func produceMessage() {
-
+	tt := prepareConsumeWorkerTest()
 	// Set up a context
 	ctx := context.Background()
 
 	// Set up Kafka writer configuration
 	writerConfig := kafka.WriterConfig{
-		Brokers: []string{"127.0.0.1:64103"},
+		Brokers: tt.kafkaBrokers,
 		Topic:   "test",
 	}
 
@@ -47,7 +68,9 @@ func produceMessage() {
 }
 
 func TestConsumeKafka(t *testing.T) {
-	db, err := sql.Open("databend", "http://root:root@localhost:8002")
+	tt := prepareConsumeWorkerTest()
+
+	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
 	execute(db, `CREATE TABLE test_ingest (
 			i64 Int64,
