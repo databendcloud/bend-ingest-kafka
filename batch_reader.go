@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/sirupsen/logrus"
 )
 
 type MessagesBatch struct {
@@ -70,14 +69,14 @@ _loop:
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("exited")
+			logrus.Printf("exited")
 			return nil, nil
 		case <-batchTimeout.C:
 			break _loop
 		default:
 			m, err := br.fetchMessageWithTimeout(ctx, br.cfg.BatchMaxInterval)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to read message from Kafka: %v\n", err)
+				logrus.Warnf("Failed to read message from Kafka: %v", err)
 				continue
 			}
 			if firstMessageOffset == 0 {

@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
+
+	"github.com/sirupsen/logrus"
 )
 
 type ConsumeWorker struct {
@@ -26,30 +27,30 @@ func NewConsumeWorker(cfg *Config, name string) *ConsumeWorker {
 }
 
 func (c *ConsumeWorker) Close() {
-	log.Printf("exited")
+	logrus.Printf("%v exited", c.name)
 	c.batchReader.Close()
 }
 
 func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
-	log.Printf("DEBUG: read batch")
+	logrus.Debug("read batch")
 	batch, err := c.batchReader.ReadBatch(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
 		return err
 	}
-	log.Printf("DEBUG: got batch")
+	logrus.Debug("got batch")
 
 	if batch.Empty() {
 		return err
 	}
 
-	log.Printf("DEBUG: ingest data")
+	logrus.Debug("DEBUG: ingest data")
 	if err := c.ig.IngestData(batch.messages); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
 		return err
 	}
 
-	log.Printf("DEBUG: commit")
+	logrus.Debug("DEBUG: commit")
 	if err := batch.commitFunc(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
 		return err
@@ -58,7 +59,7 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 }
 
 func (c *ConsumeWorker) Run(ctx context.Context) {
-	log.Printf("Starting worker %s", c.name)
+	logrus.Printf("Starting worker %s", c.name)
 
 	for {
 		select {
