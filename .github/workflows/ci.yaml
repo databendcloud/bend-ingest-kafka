@@ -25,6 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
+     - name: Start Bitname Kafka
+       uses: bbcCorp/kafka-actions@v1
+
       - name: Verify Service Running
         run: |
           cid=$(docker ps -a | grep databend | cut -d' ' -f1)
@@ -34,5 +37,6 @@ jobs:
       - name: Test
         env:
             TEST_DATABEND_DSN: "http://databend:databend@localhost:8000/default"
+            TEST_KAFKA_BROKER: "localhost:9092"
         run: |
           go test -t ./...
