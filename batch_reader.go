@@ -26,14 +26,22 @@ type BatchReader interface {
 	Close() error
 }
 
+func NewBatchReader(cfg *Config) BatchReader {
+	if cfg.MockData != "" {
+		return NewMockBatchReader(cfg.MockData, cfg.BatchSize)
+	}
+	return NewKafkaBatchReader(cfg)
+}
+
 type MockBatchReader struct {
 	sampleData string
 	batchSize  int
 }
 
-func NewMockBatchReader(sampleData string) *MockBatchReader {
+func NewMockBatchReader(sampleData string, batchSize int) *MockBatchReader {
 	return &MockBatchReader{
 		sampleData: sampleData,
+		batchSize:  batchSize,
 	}
 }
 
