@@ -46,10 +46,12 @@ func main() {
 	}()
 
 	cfg := parseConfig()
+	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
+
 	wg := sync.WaitGroup{}
 	wg.Add(cfg.Workers)
 	for i := 0; i < cfg.Workers; i++ {
-		w := NewConsumeWorker(cfg, fmt.Sprintf("worker-%d", i))
+		w := NewConsumeWorker(cfg, fmt.Sprintf("worker-%d", i), ig)
 		go func() {
 			w.Run(ctx)
 			wg.Done()

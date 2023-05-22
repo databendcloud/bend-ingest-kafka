@@ -16,9 +16,6 @@ import (
 
 type DatabendIngester interface {
 	IngestData(batchJsonData []string) error
-	GenerateNDJsonFile(batchJsonData []string) (string, error)
-	UploadToStage(fileName string) (*godatabend.StageLocation, error)
-	CopyInto(stage *godatabend.StageLocation) error
 }
 
 type databendIngester struct {
@@ -37,17 +34,18 @@ func (ig *databendIngester) IngestData(batchJsonData []string) error {
 	if len(batchJsonData) == 0 {
 		return nil
 	}
-	fileName, err := ig.GenerateNDJsonFile(batchJsonData)
+
+	fileName, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
 		return err
 	}
 
-	stage, err := ig.UploadToStage(fileName)
+	stage, err := ig.uploadToStage(fileName)
 	if err != nil {
 		return err
 	}
 
-	err = ig.CopyInto(stage)
+	err = ig.copyInto(stage)
 	if err != nil {
 		return err
 	}
@@ -55,7 +53,7 @@ func (ig *databendIngester) IngestData(batchJsonData []string) error {
 	return nil
 }
 
-func (ig *databendIngester) GenerateNDJsonFile(batchJsonData []string) (string, error) {
+func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, error) {
 	randomNDJsonFileName := fmt.Sprintf("%s.ndjson", uuid.NewString())
 	outputFile, err := os.OpenFile(randomNDJsonFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
@@ -80,7 +78,7 @@ func (ig *databendIngester) GenerateNDJsonFile(batchJsonData []string) (string, 
 	return randomNDJsonFileName, err
 }
 
-func (ig *databendIngester) UploadToStage(fileName string) (*godatabend.StageLocation, error) {
+func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLocation, error) {
 	defer func() {
 		err := os.RemoveAll(fileName)
 		if err != nil {
@@ -122,7 +120,7 @@ func execute(db *sql.DB, sql string) error {
 	return nil
 }
 
-func (ig *databendIngester) CopyInto(stage *godatabend.StageLocation) error {
+func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON)", ig.table, stage.String())
 	db, err := sql.Open("databend", ig.databendDSN)
 	if err != nil {

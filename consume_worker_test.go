@@ -114,7 +114,7 @@ func TestConsumeKafka(t *testing.T) {
 	produceMessage()
 	fmt.Println("start consuming data")
 
-	w := NewConsumeWorker(&Config{
+	cfg := &Config{
 		DatabendDSN:           tt.databendDSN,
 		DatabendTable:         "test_ingest",
 		KafkaTopic:            "test",
@@ -124,7 +124,9 @@ func TestConsumeKafka(t *testing.T) {
 		Workers:               1,
 		DataFormat:            "json",
 		BatchMaxInterval:      10 * time.Second,
-	}, "worker1")
+	}
+	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
+	w := NewConsumeWorker(cfg, "worker1", ig)
 	log.Printf("start consume")
 	w.stepBatch(context.TODO())
 

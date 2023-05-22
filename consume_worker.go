@@ -15,9 +15,7 @@ type ConsumeWorker struct {
 	batchReader BatchReader
 }
 
-func NewConsumeWorker(cfg *Config, name string) *ConsumeWorker {
-	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
-
+func NewConsumeWorker(cfg *Config, name string, ig DatabendIngester) *ConsumeWorker {
 	return &ConsumeWorker{
 		name:        name,
 		cfg:         cfg,
