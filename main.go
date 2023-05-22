@@ -72,6 +72,7 @@ func parseConfig() *Config {
 	flag.DurationVar(&cfg.BatchMaxInterval, "batch-max-interval", 30*time.Second, "Batch max interval")
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
 
+	flag.Parse()
 	return &cfg
 }
 
