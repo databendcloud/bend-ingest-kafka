@@ -48,7 +48,7 @@ func TestIngestData(t *testing.T) {
 	defer execute(db, "drop table if exists test_ingest;")
 
 	testData := []string{"{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}", "{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}"}
-	ig := NewIngester(&cfg)
+	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
 	err = ig.IngestData(testData)
 	assert.NoError(t, err)
 }

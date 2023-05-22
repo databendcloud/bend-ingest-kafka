@@ -11,12 +11,12 @@ import (
 type ConsumeWorker struct {
 	name        string
 	cfg         *Config
-	ig          Ingester
+	ig          DatabendIngester
 	batchReader BatchReader
 }
 
 func NewConsumeWorker(cfg *Config, name string) *ConsumeWorker {
-	ig := NewIngester(cfg)
+	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
 
 	return &ConsumeWorker{
 		name:        name,

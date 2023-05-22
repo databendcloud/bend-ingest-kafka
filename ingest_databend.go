@@ -14,24 +14,26 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Ingester interface {
+type DatabendIngester interface {
 	IngestData(batchJsonData []string) error
 	GenerateNDJsonFile(batchJsonData []string) (string, error)
 	UploadToStage(fileName string) (*godatabend.StageLocation, error)
 	CopyInto(stage *godatabend.StageLocation) error
 }
 
-type ingester struct {
-	cfg *Config
+type databendIngester struct {
+	databendDSN string
+	table       string
 }
 
-func NewIngester(cfg *Config) Ingester {
-	return &ingester{
-		cfg: cfg,
+func NewDatabendIngester(dsn string, table string) DatabendIngester {
+	return &databendIngester{
+		databendDSN: dsn,
+		table:       table,
 	}
 }
 
-func (ig *ingester) IngestData(batchJsonData []string) error {
+func (ig *databendIngester) IngestData(batchJsonData []string) error {
 	if len(batchJsonData) == 0 {
 		return nil
 	}
@@ -53,7 +55,7 @@ func (ig *ingester) IngestData(batchJsonData []string) error {
 	return nil
 }
 
-func (ig *ingester) GenerateNDJsonFile(batchJsonData []string) (string, error) {
+func (ig *databendIngester) GenerateNDJsonFile(batchJsonData []string) (string, error) {
 	randomNDJsonFileName := fmt.Sprintf("%s.ndjson", uuid.NewString())
 	outputFile, err := os.OpenFile(randomNDJsonFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
@@ -78,7 +80,7 @@ func (ig *ingester) GenerateNDJsonFile(batchJsonData []string) (string, error) {
 	return randomNDJsonFileName, err
 }
 
-func (ig *ingester) UploadToStage(fileName string) (*godatabend.StageLocation, error) {
+func (ig *databendIngester) UploadToStage(fileName string) (*godatabend.StageLocation, error) {
 	defer func() {
 		err := os.RemoveAll(fileName)
 		if err != nil {
@@ -86,7 +88,7 @@ func (ig *ingester) UploadToStage(fileName string) (*godatabend.StageLocation, e
 		}
 	}()
 
-	databendConfig, err := godatabend.ParseDSN(ig.cfg.DatabendDSN)
+	databendConfig, err := godatabend.ParseDSN(ig.databendDSN)
 	if err != nil {
 		return nil, err
 	}
@@ -120,9 +122,9 @@ func execute(db *sql.DB, sql string) error {
 	return nil
 }
 
-func (ig *ingester) CopyInto(stage *godatabend.StageLocation) error {
-	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON)", ig.cfg.DatabendTable, stage.String())
-	db, err := sql.Open("databend", ig.cfg.DatabendDSN)
+func (ig *databendIngester) CopyInto(stage *godatabend.StageLocation) error {
+	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON)", ig.table, stage.String())
+	db, err := sql.Open("databend", ig.databendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
 		return err
