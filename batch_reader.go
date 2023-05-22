@@ -55,8 +55,9 @@ func (r *MockBatchReader) Close() error {
 }
 
 type KafkaBatchReader struct {
-	cfg         *Config
-	kafkaReader *kafka.Reader
+	kafkaReader      *kafka.Reader
+	batchSize        int
+	maxBatchInterval time.Duration
 }
 
 func NewKafkaBatchReader(cfg *Config) *KafkaBatchReader {
@@ -66,8 +67,9 @@ func NewKafkaBatchReader(cfg *Config) *KafkaBatchReader {
 		Topic:   cfg.KafkaTopic,
 	})
 	return &KafkaBatchReader{
-		cfg:         cfg,
-		kafkaReader: kafkaReader,
+		batchSize:        cfg.BatchSize,
+		maxBatchInterval: cfg.BatchMaxInterval,
+		kafkaReader:      kafkaReader,
 	}
 }
 
@@ -89,7 +91,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, erro
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              = []string{}
-		batchTimeout       = time.NewTimer(br.cfg.BatchMaxInterval)
+		batchTimeout       = time.NewTimer(br.maxBatchInterval)
 	)
 	defer batchTimeout.Stop()
 
@@ -102,7 +104,7 @@ _loop:
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			m, err := br.fetchMessageWithTimeout(ctx, br.cfg.BatchMaxInterval)
+			m, err := br.fetchMessageWithTimeout(ctx, br.maxBatchInterval)
 			if err != nil {
 				logrus.Warnf("Failed to read message from Kafka: %v", err)
 				continue
@@ -115,7 +117,7 @@ _loop:
 			batch = append(batch, strings.ReplaceAll(data, "\n", ""))
 			lastMessage = m
 
-			if len(batch) >= br.cfg.BatchSize {
+			if len(batch) >= br.batchSize {
 				break _loop
 			}
 		}
