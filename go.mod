@@ -14,6 +14,7 @@ require (
 require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
 	github.com/avast/retry-go v3.0.0+incompatible // indirect
+	github.com/codesuki/go-time-series v0.0.0-20210430055340-c4c8d8fa61d4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect

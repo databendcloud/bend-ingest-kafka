@@ -2,6 +2,8 @@ github.com/BurntSushi/toml v1.2.1 h1:9F2/+DoOYIOksmaJFPw1tGFy1eDnIJXg+UHjuD8lTak
 github.com/BurntSushi/toml v1.2.1/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
 github.com/avast/retry-go v3.0.0+incompatible h1:4SOWQ7Qs+oroOTQOYnAHqelpCO0biHSxpiH9JdtuBj0=
 github.com/avast/retry-go v3.0.0+incompatible/go.mod h1:XtSnn+n/sHqQIpZ10K1qAevBhOOCWBLXXy3hyiqqBrY=
+github.com/codesuki/go-time-series v0.0.0-20210430055340-c4c8d8fa61d4 h1:xKzsxCG6QVIh31ZIXuRR/eCvEflCFwpeET6cvTFYhVo=
+github.com/codesuki/go-time-series v0.0.0-20210430055340-c4c8d8fa61d4/go.mod h1:Rm6RJZPJg9b/vwne8fiAcfh0X5QFNszEhijK6d6qW9k=
 github.com/databendcloud/databend-go v0.3.12 h1:MDPzU0/e4WMIZvdjzOUO7bVObpPkEON/ZXj5LBAH/MU=
 github.com/databendcloud/databend-go v0.3.12/go.mod h1:gc59O5283qi8NyzAJ1le0SEZb5p/SL7nwvrB9p6lxDw=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
