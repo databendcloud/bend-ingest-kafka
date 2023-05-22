@@ -22,7 +22,7 @@ func NewConsumeWorker(cfg *Config, name string) *ConsumeWorker {
 		name:        name,
 		cfg:         cfg,
 		ig:          ig,
-		batchReader: NewKafkaBatchReader(cfg),
+		batchReader: NewBatchReader(cfg),
 	}
 }
 
