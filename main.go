@@ -27,6 +27,7 @@ type Config struct {
 	KafkaBootstrapServers string
 	KafkaTopic            string
 	KafkaConsumerGroup    string
+	MockData              string
 	DatabendDSN           string
 	DatabendTable         string
 	BatchSize             int
@@ -65,6 +66,7 @@ func parseConfig() *Config {
 	flag.StringVar(&cfg.KafkaConsumerGroup, "kafka-consumer-group", "kafka-bend-ingest", "Kafkaconsumer group")
 	flag.StringVar(&cfg.DatabendDSN, "databend-dsn", "http://root:root@localhost:8002", "Databend DSN")
 	flag.StringVar(&cfg.DatabendTable, "databend-table", "test_ingest", "Databend table")
+	flag.StringVar(&cfg.MockData, "mock-data", "", "generate mock data to databend")
 	flag.IntVar(&cfg.BatchSize, "batch-size", 1024, "Batch size")
 	flag.IntVar(&cfg.Workers, "workers", 1, "Number of workers")
 	flag.DurationVar(&cfg.BatchMaxInterval, "batch-max-interval", 30*time.Second, "Batch max interval")

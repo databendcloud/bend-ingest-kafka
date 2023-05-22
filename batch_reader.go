@@ -26,6 +26,34 @@ type BatchReader interface {
 	Close() error
 }
 
+type MockBatchReader struct {
+	sampleData string
+	batchSize  int
+}
+
+func NewMockBatchReader(sampleData string) *MockBatchReader {
+	return &MockBatchReader{
+		sampleData: sampleData,
+	}
+}
+
+func (r *MockBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
+	messages := []string{}
+	for i := 0; i < r.batchSize; i++ {
+		messages = append(messages, r.sampleData)
+	}
+	return &MessagesBatch{
+		messages:           messages,
+		commitFunc:         func(_ context.Context) error { return nil },
+		firstMessageOffset: -1,
+		lastMessageOffset:  -1,
+	}, nil
+}
+
+func (r *MockBatchReader) Close() error {
+	return nil
+}
+
 type KafkaBatchReader struct {
 	cfg         *Config
 	kafkaReader *kafka.Reader
