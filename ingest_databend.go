@@ -4,71 +4,91 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
 
 	godatabend "github.com/databendcloud/databend-go"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
-type Ingester interface {
+type DatabendIngester interface {
 	IngestData(batchJsonData []string) error
-	GenerateNDJsonFile(batchJsonData []string) (string, error)
-	UploadToStage(fileName string) (*godatabend.StageLocation, error)
-	CopyInto(stage *godatabend.StageLocation) error
 }
 
-func (cfg *Config) IngestData(batchJsonData []string) error {
+type databendIngester struct {
+	databendDSN   string
+	table         string
+	statsRecorder *DatabendIngesterStatsRecorder
+}
+
+func NewDatabendIngester(dsn string, table string) DatabendIngester {
+	stats := NewDatabendIntesterStatsRecorder()
+	return &databendIngester{
+		databendDSN:   dsn,
+		table:         table,
+		statsRecorder: stats,
+	}
+}
+
+func (ig *databendIngester) IngestData(batchJsonData []string) error {
+	startTime := time.Now()
+
 	if len(batchJsonData) == 0 {
 		return nil
 	}
-	fileName, err := cfg.GenerateNDJsonFile(batchJsonData)
+
+	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
 		return err
 	}
 
-	stage, err := cfg.UploadToStage(fileName)
+	stage, err := ig.uploadToStage(fileName)
 	if err != nil {
 		return err
 	}
 
-	err = cfg.CopyInto(stage)
+	err = ig.copyInto(stage)
 	if err != nil {
 		return err
 	}
 
+	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
+	stats := ig.statsRecorder.Stats(time.Since(startTime))
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
 	return nil
 }
 
-func (cfg *Config) GenerateNDJsonFile(batchJsonData []string) (string, error) {
-	randomNDJsonFileName := fmt.Sprintf("%s.ndjson", uuid.NewString())
-	outputFile, err := os.OpenFile(randomNDJsonFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, int, error) {
+	outputFile, err := ioutil.TempFile("/tmp", "databend-ingest-*.ndjson")
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer outputFile.Close()
 
 	// Create a buffered writer for the Ndjson file
 	writer := bufio.NewWriter(outputFile)
+	bytesSum := 0
 
 	for _, data := range batchJsonData {
-		_, err = writer.WriteString(data + "\n")
+		n, err := writer.WriteString(data + "\n")
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
+		bytesSum += n
 	}
 	// Flush any remaining data to the NDJson file
 	err = writer.Flush()
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return randomNDJsonFileName, err
+	return outputFile.Name(), bytesSum, err
 }
 
-func (cfg *Config) UploadToStage(fileName string) (*godatabend.StageLocation, error) {
+func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLocation, error) {
 	defer func() {
 		err := os.RemoveAll(fileName)
 		if err != nil {
@@ -76,7 +96,7 @@ func (cfg *Config) UploadToStage(fileName string) (*godatabend.StageLocation, er
 		}
 	}()
 
-	databendConfig, err := godatabend.ParseDSN(cfg.DatabendDSN)
+	databendConfig, err := godatabend.ParseDSN(ig.databendDSN)
 	if err != nil {
 		return nil, err
 	}
@@ -110,9 +130,9 @@ func execute(db *sql.DB, sql string) error {
 	return nil
 }
 
-func (cfg *Config) CopyInto(stage *godatabend.StageLocation) error {
-	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON)", cfg.DatabendTable, stage.String())
-	db, err := sql.Open("databend", cfg.DatabendDSN)
+func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
+	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON)", ig.table, stage.String())
+	db, err := sql.Open("databend", ig.databendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
 		return err
