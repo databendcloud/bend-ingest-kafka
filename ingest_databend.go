@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
 	godatabend "github.com/databendcloud/databend-go"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -63,8 +63,7 @@ func (ig *databendIngester) IngestData(batchJsonData []string) error {
 }
 
 func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, int, error) {
-	randomNDJsonFileName := fmt.Sprintf("%s.ndjson", uuid.NewString())
-	outputFile, err := os.OpenFile(randomNDJsonFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+	outputFile, err := ioutil.TempFile("/tmp", "databend-ingest-*.ndjson")
 	if err != nil {
 		return "", 0, err
 	}
@@ -86,7 +85,7 @@ func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, 
 	if err != nil {
 		return "", 0, err
 	}
-	return randomNDJsonFileName, bytesSum, err
+	return outputFile.Name(), bytesSum, err
 }
 
 func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLocation, error) {
