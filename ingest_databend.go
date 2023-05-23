@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,23 +20,28 @@ type DatabendIngester interface {
 }
 
 type databendIngester struct {
-	databendDSN string
-	table       string
+	databendDSN   string
+	table         string
+	statsRecorder *DatabendIngesterStatsRecorder
 }
 
 func NewDatabendIngester(dsn string, table string) DatabendIngester {
+	stats := NewDatabendIntesterStatsRecorder()
 	return &databendIngester{
-		databendDSN: dsn,
-		table:       table,
+		databendDSN:   dsn,
+		table:         table,
+		statsRecorder: stats,
 	}
 }
 
 func (ig *databendIngester) IngestData(batchJsonData []string) error {
+	startTime := time.Now()
+
 	if len(batchJsonData) == 0 {
 		return nil
 	}
 
-	fileName, err := ig.generateNDJsonFile(batchJsonData)
+	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
 		return err
 	}
@@ -50,32 +56,37 @@ func (ig *databendIngester) IngestData(batchJsonData []string) error {
 		return err
 	}
 
+	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
+	stats := ig.statsRecorder.Stats(time.Since(startTime))
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
 	return nil
 }
 
-func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, error) {
+func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, int, error) {
 	randomNDJsonFileName := fmt.Sprintf("%s.ndjson", uuid.NewString())
 	outputFile, err := os.OpenFile(randomNDJsonFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer outputFile.Close()
 
 	// Create a buffered writer for the Ndjson file
 	writer := bufio.NewWriter(outputFile)
+	bytesSum := 0
 
 	for _, data := range batchJsonData {
-		_, err = writer.WriteString(data + "\n")
+		n, err := writer.WriteString(data + "\n")
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
+		bytesSum += n
 	}
 	// Flush any remaining data to the NDJson file
 	err = writer.Flush()
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return randomNDJsonFileName, err
+	return randomNDJsonFileName, bytesSum, err
 }
 
 func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLocation, error) {
