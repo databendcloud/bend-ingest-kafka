@@ -44,3 +44,5 @@ bend-ingest-kafka
   --batch-size=100000 \
   --batch-max-interval=300s
 ```
+
+Then the ingester will monitor your kafka topic and consumer the data to insert into target databend table.
