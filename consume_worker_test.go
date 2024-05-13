@@ -13,6 +13,8 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/test-go/testify/assert"
+
+	"bend-ingest-kafka/config"
 )
 
 type consumeWorkerTest struct {
@@ -114,7 +116,7 @@ func TestConsumeKafka(t *testing.T) {
 	produceMessage()
 	fmt.Println("start consuming data")
 
-	cfg := &Config{
+	cfg := &config.Config{
 		DatabendDSN:           tt.databendDSN,
 		DatabendTable:         "test_ingest",
 		KafkaTopic:            "test",
@@ -125,7 +127,7 @@ func TestConsumeKafka(t *testing.T) {
 		DataFormat:            "json",
 		BatchMaxInterval:      10 * time.Second,
 	}
-	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
+	ig := NewDatabendIngester(cfg)
 	w := NewConsumeWorker(cfg, "worker1", ig)
 	log.Printf("start consume")
 	w.stepBatch(context.TODO())

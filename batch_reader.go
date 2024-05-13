@@ -7,10 +7,13 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
+
+	"bend-ingest-kafka/config"
 )
 
 type MessagesBatch struct {
 	messages           []string
+	partition          int
 	commitFunc         func(context.Context) error
 	firstMessageOffset int64
 	lastMessageOffset  int64
@@ -26,7 +29,7 @@ type BatchReader interface {
 	Close() error
 }
 
-func NewBatchReader(cfg *Config) BatchReader {
+func NewBatchReader(cfg *config.Config) BatchReader {
 	if cfg.MockData != "" {
 		return NewMockBatchReader(cfg.MockData, cfg.BatchSize)
 	}
@@ -68,11 +71,12 @@ type KafkaBatchReader struct {
 	maxBatchInterval time.Duration
 }
 
-func NewKafkaBatchReader(cfg *Config) *KafkaBatchReader {
+func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
-		GroupID: cfg.KafkaConsumerGroup,
-		Topic:   cfg.KafkaTopic,
+		Brokers:   parseKafkaServers(cfg.KafkaBootstrapServers),
+		GroupID:   cfg.KafkaConsumerGroup,
+		Topic:     cfg.KafkaTopic,
+		Partition: cfg.KafkaPartition,
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
@@ -96,6 +100,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
 	var (
 		lastMessage        *kafka.Message
+		partition          int
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              = []string{}
@@ -137,11 +142,13 @@ _loop:
 			return br.kafkaReader.CommitMessages(ctx, *lastMessage)
 		}
 		lastMessageOffset = lastMessage.Offset
+		partition = lastMessage.Partition
 	}
 
 	return &MessagesBatch{
 		messages:           batch,
 		commitFunc:         commitFunc,
+		partition:          partition,
 		firstMessageOffset: firstMessageOffset,
 		lastMessageOffset:  lastMessageOffset,
 	}, nil

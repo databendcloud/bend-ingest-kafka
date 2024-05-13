@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/test-go/testify/assert"
+
+	"bend-ingest-kafka/config"
 )
 
 type ingestDatabendTest struct {
@@ -31,7 +33,7 @@ func TestParseKafkaServers(t *testing.T) {
 
 func TestIngestData(t *testing.T) {
 	tt := prepareIngestDatabendTest()
-	cfg := Config{
+	cfg := config.Config{
 		KafkaBootstrapServers: "127.0.0.1:64103",
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
@@ -48,7 +50,8 @@ func TestIngestData(t *testing.T) {
 	defer execute(db, "drop table if exists test_ingest;")
 
 	testData := []string{"{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}", "{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}"}
-	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
-	err = ig.IngestData(testData)
+	messagesBatch := &MessagesBatch{messages: testData}
+	ig := NewDatabendIngester(&cfg)
+	err = ig.IngestData(messagesBatch)
 	assert.NoError(t, err)
 }

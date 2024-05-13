@@ -11,34 +11,63 @@ import (
 	"time"
 
 	godatabend "github.com/databendcloud/databend-go"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"bend-ingest-kafka/config"
 )
 
 type DatabendIngester interface {
-	IngestData(batchJsonData []string) error
+	IngestData(messageBatch *MessagesBatch) error
+	CreateRawTargetTable() error
 }
 
 type databendIngester struct {
-	databendDSN   string
-	table         string
-	statsRecorder *DatabendIngesterStatsRecorder
+	databendIngesterCfg *config.Config
+	statsRecorder       *DatabendIngesterStatsRecorder
 }
 
-func NewDatabendIngester(dsn string, table string) DatabendIngester {
+func NewDatabendIngester(cfg *config.Config) DatabendIngester {
 	stats := NewDatabendIntesterStatsRecorder()
 	return &databendIngester{
-		databendDSN:   dsn,
-		table:         table,
-		statsRecorder: stats,
+		databendIngesterCfg: cfg,
+		statsRecorder:       stats,
 	}
 }
 
-func (ig *databendIngester) IngestData(batchJsonData []string) error {
+func (ig *databendIngester) reWriteTheJsonData(messagesBatch *MessagesBatch) ([]string, error) {
+	batchJsonData := messagesBatch.messages
+	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
+	recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\"}", ig.databendIngesterCfg.KafkaTopic, messagesBatch.partition, messagesBatch.lastMessageOffset)
+
+	for i := 0; i < len(batchJsonData); i++ {
+		// add the uuid, record_metadata and add_time fields
+		batchJsonData[i] = fmt.Sprintf("{\"uuid\":\"%s\",\"record_metadata\":\"%s\",\"add_time\":\"%s\",\"raw_data\":%s}",
+			uuid.New().String(),
+			recordMetadata,
+			time.Now().Format(time.RFC3339Nano),
+			batchJsonData[i])
+	}
+	return nil, nil
+}
+
+func (ig *databendIngester) IngestData(messageBatch *MessagesBatch) error {
 	startTime := time.Now()
+	batchJsonData := messageBatch.messages
 
 	if len(batchJsonData) == 0 {
 		return nil
+	}
+	// handle batchJsonData, if isTransform is false, then the data is already in NDJson format
+	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
+	// then insert the data into the databend table
+	if ig.databendIngesterCfg.IsJsonTransform {
+		var err error
+		batchJsonData, err = ig.reWriteTheJsonData(messageBatch)
+		if err != nil {
+			return err
+		}
 	}
 
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
@@ -96,7 +125,7 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 		}
 	}()
 
-	databendConfig, err := godatabend.ParseDSN(ig.databendDSN)
+	databendConfig, err := godatabend.ParseDSN(ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +160,22 @@ func execute(db *sql.DB, sql string) error {
 }
 
 func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
-	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON)", ig.table, stage.String())
-	db, err := sql.Open("databend", ig.databendDSN)
+	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON COMPRESSION = AUTO) "+
+		"PURGE = %v FORCE = %v", ig.databendIngesterCfg.DatabendTable, stage.String(), ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce)
+	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
 		return err
 	}
 	return execute(db, copyIntoSQL)
+}
+
+func (ig *databendIngester) CreateRawTargetTable() error {
+	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, raw_data json, record_metadata json, add_time timestamp) ", ig.databendIngesterCfg.DatabendTable)
+	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
+	if err != nil {
+		logrus.Errorf("create db error: %v", err)
+		return err
+	}
+	return execute(db, createTableSQL)
 }

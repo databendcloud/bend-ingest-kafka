@@ -1,0 +1,16 @@
+{
+  "kafkaBootstrapServers": "localhost:9092",
+  "kafkaTopic": "test",
+  "kafkaPartition": 0,
+  "KafkaConsumerGroup": "test",
+  "mockData": "",
+  "isJsonTransform": true,
+  "databendDSN": "http://databend:databend@localhost:8000",
+  "databendTable": "default.kfk_test",
+  "batchSize": 1,
+  "batchMaxInterval": 1,
+  "dataFormat": "json",
+  "worker": 1,
+  "copyPurge": false,
+  "copyForce": false
+}

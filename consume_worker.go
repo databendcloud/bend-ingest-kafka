@@ -6,16 +6,18 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
+
+	"bend-ingest-kafka/config"
 )
 
 type ConsumeWorker struct {
 	name        string
-	cfg         *Config
+	cfg         *config.Config
 	ig          DatabendIngester
 	batchReader BatchReader
 }
 
-func NewConsumeWorker(cfg *Config, name string, ig DatabendIngester) *ConsumeWorker {
+func NewConsumeWorker(cfg *config.Config, name string, ig DatabendIngester) *ConsumeWorker {
 	return &ConsumeWorker{
 		name:        name,
 		cfg:         cfg,
@@ -43,7 +45,7 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 	}
 
 	logrus.Debug("DEBUG: ingest data")
-	if err := c.ig.IngestData(batch.messages); err != nil {
+	if err := c.ig.IngestData(batch); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
 		return err
 	}
