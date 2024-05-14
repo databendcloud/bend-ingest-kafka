@@ -22,7 +22,7 @@ type consumeWorkerTest struct {
 	kafkaBrokers []string
 }
 
-func prepareConsumeWorkerTest(topic string) *consumeWorkerTest {
+func prepareConsumeWorkerTest(topic string, partition int) *consumeWorkerTest {
 	testDatabendDSN := os.Getenv("TEST_DATABEND_DSN")
 	if testDatabendDSN == "" {
 		testDatabendDSN = "http://databend:databend@localhost:8000?presigned_url_disabled=true"
@@ -36,11 +36,11 @@ func prepareConsumeWorkerTest(topic string) *consumeWorkerTest {
 		databendDSN:  testDatabendDSN,
 		kafkaBrokers: []string{testKafkaBroker},
 	}
-	tt.setupKafkaTopic(topic)
+	tt.setupKafkaTopic(topic, partition)
 	return tt
 }
 
-func (tt *consumeWorkerTest) setupKafkaTopic(topic string) {
+func (tt *consumeWorkerTest) setupKafkaTopic(topic string, partition int) {
 	conn, err := kafka.Dial("tcp", tt.kafkaBrokers[0])
 	if err != nil {
 		panic(err)
@@ -54,7 +54,7 @@ func (tt *consumeWorkerTest) setupKafkaTopic(topic string) {
 		panic(err.Error())
 	}
 	defer controllerConn.Close()
-	topicConfigs := []kafka.TopicConfig{{Topic: topic, NumPartitions: 1, ReplicationFactor: 1}}
+	topicConfigs := []kafka.TopicConfig{{Topic: topic, NumPartitions: partition, ReplicationFactor: 1}}
 
 	err = controllerConn.CreateTopics(topicConfigs...)
 	if err != nil {
@@ -67,7 +67,7 @@ func TestProduceMessage(t *testing.T) {
 }
 
 func produceMessage() {
-	tt := prepareConsumeWorkerTest("produce_test")
+	tt := prepareConsumeWorkerTest("produce_test", 1)
 	// Set up a context
 	ctx := context.Background()
 
@@ -98,7 +98,7 @@ func produceMessage() {
 }
 
 func TestConsumeKafka(t *testing.T) {
-	tt := prepareConsumeWorkerTest("consume_test")
+	tt := prepareConsumeWorkerTest("consume_test", 2)
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
@@ -155,7 +155,7 @@ func TestConsumeKafka(t *testing.T) {
 }
 
 func TestConsumerWithoutTransform(t *testing.T) {
-	tt := prepareConsumeWorkerTest("consume_raw_test")
+	tt := prepareConsumeWorkerTest("consume_raw_test", 3)
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
