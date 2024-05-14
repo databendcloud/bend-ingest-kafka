@@ -10,7 +10,6 @@ import (
 type Config struct {
 	KafkaBootstrapServers string        `json:"kafkaBootstrapServers"`
 	KafkaTopic            string        `json:"kafkaTopic"`
-	KafkaPartition        int           `json:"kafkaPartition"`
 	KafkaConsumerGroup    string        `json:"KafkaConsumerGroup"`
 	MockData              string        `json:"mockData"`
 	IsJsonTransform       bool          `json:"isJsonTransform"`

@@ -72,7 +72,6 @@ func parseConfig() *config.Config {
 	cfg := config.Config{}
 	flag.StringVar(&cfg.KafkaBootstrapServers, "kafka-bootstrap-servers", "127.0.0.1:64103", "Kafka bootstrap servers")
 	flag.StringVar(&cfg.KafkaTopic, "kafka-topic", "test", "Kafka topic")
-	flag.IntVar(&cfg.KafkaPartition, "kafka-partition", 0, "Kafka partition")
 	flag.StringVar(&cfg.KafkaConsumerGroup, "kafka-consumer-group", "kafka-bend-ingest", "Kafkaconsumer group")
 	flag.StringVar(&cfg.DatabendDSN, "databend-dsn", "http://root:root@localhost:8002", "Databend DSN")
 	flag.StringVar(&cfg.DatabendTable, "databend-table", "test_ingest", "Databend table")

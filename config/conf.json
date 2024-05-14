@@ -1,16 +1,15 @@
 {
   "kafkaBootstrapServers": "localhost:9092",
   "kafkaTopic": "ingest_test",
-  "kafkaPartition": 1,
   "KafkaConsumerGroup": "test",
   "mockData": "",
   "isJsonTransform": false,
   "databendDSN": "https://cloudapp:password@tn3ftqihs--medium-p8at.gw.aws-us-east-2.default.databend.com:443",
   "databendTable": "default.kfk_test",
   "batchSize": 1,
-  "batchMaxInterval": 1000000,
+  "batchMaxInterval": 5000000000,
   "dataFormat": "json",
-  "worker": 1,
+  "workers": 1,
   "copyPurge": false,
   "copyForce": false
 }

@@ -75,10 +75,9 @@ type KafkaBatchReader struct {
 
 func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   parseKafkaServers(cfg.KafkaBootstrapServers),
-		GroupID:   cfg.KafkaConsumerGroup,
-		Topic:     cfg.KafkaTopic,
-		Partition: cfg.KafkaPartition,
+		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
+		GroupID: cfg.KafkaConsumerGroup,
+		Topic:   cfg.KafkaTopic,
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
