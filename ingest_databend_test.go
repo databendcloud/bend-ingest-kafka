@@ -40,6 +40,7 @@ func TestIngestData(t *testing.T) {
 		DatabendDSN:           tt.databendDSN,
 		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
 		DataFormat:       "json",
+		IsJsonTransform:  true,
 		DatabendTable:    "test_ingest",
 		BatchSize:        10,
 		BatchMaxInterval: 100,
