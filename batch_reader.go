@@ -17,6 +17,8 @@ type MessagesBatch struct {
 	commitFunc         func(context.Context) error
 	firstMessageOffset int64
 	lastMessageOffset  int64
+	key                string
+	createTime         time.Time
 }
 
 func (b *MessagesBatch) Empty() bool {
@@ -101,6 +103,8 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, erro
 	var (
 		lastMessage        *kafka.Message
 		partition          int
+		key                string
+		createTime         time.Time
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              = []string{}
@@ -143,6 +147,9 @@ _loop:
 		}
 		lastMessageOffset = lastMessage.Offset
 		partition = lastMessage.Partition
+		key = string(lastMessage.Key)
+		createTime = lastMessage.Time
+
 	}
 
 	return &MessagesBatch{
@@ -151,5 +158,7 @@ _loop:
 		partition:          partition,
 		firstMessageOffset: firstMessageOffset,
 		lastMessageOffset:  lastMessageOffset,
+		key:                key,
+		createTime:         createTime,
 	}, nil
 }

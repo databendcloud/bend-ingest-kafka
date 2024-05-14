@@ -171,8 +171,23 @@ func TestConsumerWithoutTransform(t *testing.T) {
 	log.Printf("start consume")
 	w.stepBatch(context.TODO())
 
-	result, err := db.Exec("select * from test_ingest")
+	result, err := db.Query("select * from test_ingest")
 	assert.NoError(t, err)
-	r, _ := result.RowsAffected()
-	fmt.Println(r)
+	count := 0
+	for result.Next() {
+		count += 1
+		var i64 int64
+		var u64 uint64
+		var f64 float64
+		var s string
+		var s2 string
+		var a16 []int16
+		var a8 []uint8
+		var d time.Time
+		var t time.Time
+		err = result.Scan(&i64, &u64, &f64, &s, &s2, &a16, &a8, &d, &t)
+		fmt.Println(i64, u64, f64, s, s2, a16, a8, d, t)
+	}
+
+	assert.NotEqual(t, 0, count)
 }

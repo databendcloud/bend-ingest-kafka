@@ -41,7 +41,12 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *MessagesBatch) ([]
 	batchJsonData := messagesBatch.messages
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
-	recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\"}", ig.databendIngesterCfg.KafkaTopic, messagesBatch.partition, messagesBatch.lastMessageOffset)
+	recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\", \"key\":\"%s\", \"create_time\":\"%s\"}",
+		ig.databendIngesterCfg.KafkaTopic,
+		messagesBatch.partition,
+		messagesBatch.lastMessageOffset,
+		messagesBatch.key,
+		messagesBatch.createTime.Format(time.RFC3339Nano))
 
 	for i := 0; i < len(batchJsonData); i++ {
 		// add the uuid, record_metadata and add_time fields
