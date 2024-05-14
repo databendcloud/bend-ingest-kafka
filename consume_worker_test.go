@@ -63,18 +63,18 @@ func (tt *consumeWorkerTest) setupKafkaTopic(topic string, partition int) {
 }
 
 func TestProduceMessage(t *testing.T) {
-	produceMessage()
+	produceMessage("produce_test", 1)
 }
 
-func produceMessage() {
-	tt := prepareConsumeWorkerTest("produce_test", 1)
+func produceMessage(topic string, partition int) {
+	tt := prepareConsumeWorkerTest(topic, partition)
 	// Set up a context
 	ctx := context.Background()
 
 	// Set up Kafka writer configuration
 	writerConfig := kafka.WriterConfig{
 		Brokers: tt.kafkaBrokers,
-		Topic:   "test",
+		Topic:   topic,
 	}
 
 	// Create a Kafka writer
@@ -98,7 +98,9 @@ func produceMessage() {
 }
 
 func TestConsumeKafka(t *testing.T) {
-	tt := prepareConsumeWorkerTest("consume_test", 2)
+	consumeTopic := "consume_test"
+	consumePartition := 2
+	tt := prepareConsumeWorkerTest(consumeTopic, consumePartition)
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
@@ -113,13 +115,13 @@ func TestConsumeKafka(t *testing.T) {
 			d   Date,
 			t   DateTime)`)
 	defer execute(db, "drop table if exists test_ingest;")
-	produceMessage()
+	produceMessage(consumeTopic, consumePartition)
 	fmt.Println("start consuming data")
 
 	cfg := &config.Config{
 		DatabendDSN:           tt.databendDSN,
 		DatabendTable:         "test_ingest",
-		KafkaTopic:            "test",
+		KafkaTopic:            consumeTopic,
 		KafkaBootstrapServers: tt.kafkaBrokers[0],
 		IsJsonTransform:       true,
 		KafkaConsumerGroup:    "test",
@@ -155,18 +157,20 @@ func TestConsumeKafka(t *testing.T) {
 }
 
 func TestConsumerWithoutTransform(t *testing.T) {
-	tt := prepareConsumeWorkerTest("consume_raw_test", 3)
+	consumeRawTopic := "consume_raw_test"
+	consumeRawPartition := 3
+	tt := prepareConsumeWorkerTest(consumeRawTopic, consumeRawPartition)
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
 	defer execute(db, "drop table if exists test_ingest_raw;")
-	produceMessage()
+	produceMessage(consumeRawTopic, consumeRawPartition)
 	fmt.Println("start consuming data")
 
 	cfg := &config.Config{
 		DatabendDSN:           tt.databendDSN,
 		DatabendTable:         "test_ingest_raw",
-		KafkaTopic:            "test",
+		KafkaTopic:            consumeRawTopic,
 		KafkaBootstrapServers: tt.kafkaBrokers[0],
 		IsJsonTransform:       false,
 		KafkaConsumerGroup:    "test",
