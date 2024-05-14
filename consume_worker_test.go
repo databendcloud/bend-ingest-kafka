@@ -22,7 +22,7 @@ type consumeWorkerTest struct {
 	kafkaBrokers []string
 }
 
-func prepareConsumeWorkerTest() *consumeWorkerTest {
+func prepareConsumeWorkerTest(topic string) *consumeWorkerTest {
 	testDatabendDSN := os.Getenv("TEST_DATABEND_DSN")
 	if testDatabendDSN == "" {
 		testDatabendDSN = "http://databend:databend@localhost:8000?presigned_url_disabled=true"
@@ -36,7 +36,7 @@ func prepareConsumeWorkerTest() *consumeWorkerTest {
 		databendDSN:  testDatabendDSN,
 		kafkaBrokers: []string{testKafkaBroker},
 	}
-	tt.setupKafkaTopic("test")
+	tt.setupKafkaTopic(topic)
 	return tt
 }
 
@@ -67,7 +67,7 @@ func TestProduceMessage(t *testing.T) {
 }
 
 func produceMessage() {
-	tt := prepareConsumeWorkerTest()
+	tt := prepareConsumeWorkerTest("produce_test")
 	// Set up a context
 	ctx := context.Background()
 
@@ -98,7 +98,7 @@ func produceMessage() {
 }
 
 func TestConsumeKafka(t *testing.T) {
-	tt := prepareConsumeWorkerTest()
+	tt := prepareConsumeWorkerTest("consume_test")
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
@@ -155,11 +155,11 @@ func TestConsumeKafka(t *testing.T) {
 }
 
 func TestConsumerWithoutTransform(t *testing.T) {
-	tt := prepareConsumeWorkerTest()
+	tt := prepareConsumeWorkerTest("consume_raw_test")
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
-	//defer execute(db, "drop table if exists test_ingest;")
+	defer execute(db, "drop table if exists test_ingest_raw;")
 	produceMessage()
 	fmt.Println("start consuming data")
 
