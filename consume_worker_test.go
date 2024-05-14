@@ -81,17 +81,19 @@ func produceMessage(topic string, partition int) {
 	writer := kafka.NewWriter(writerConfig)
 
 	// Send a message to Kafka
-	message := kafka.Message{
-		Key:   []byte("name"),
-		Value: []byte("{\"i64\": 10,\"u64\": 30,\"f64\": 20,\"s\": \"hao\",\"s2\": \"hello\",\"a16\":[1],\"a8\":[2],\"d\": \"2011-03-06\",\"t\": \"2016-04-04 11:30:00\"}"),
-	}
-	err := writer.WriteMessages(ctx, message)
-	if err != nil {
-		log.Fatal("Failed to send message:", err)
+	for i := 0; i < 3; i++ {
+		message := kafka.Message{
+			Key:   []byte("name"),
+			Value: []byte("{\"i64\": 10,\"u64\": 30,\"f64\": 20,\"s\": \"hao\",\"s2\": \"hello\",\"a16\":[1],\"a8\":[2],\"d\": \"2011-03-06\",\"t\": \"2016-04-04 11:30:00\"}"),
+		}
+		err := writer.WriteMessages(ctx, message)
+		if err != nil {
+			log.Fatal("Failed to send message:", err)
+		}
 	}
 
 	// Close the Kafka writer
-	err = writer.Close()
+	err := writer.Close()
 	if err != nil {
 		log.Fatal("Failed to close writer:", err)
 	}
@@ -177,7 +179,7 @@ func TestConsumerWithoutTransform(t *testing.T) {
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
-		BatchMaxInterval:      5 * time.Second,
+		BatchMaxInterval:      10 * time.Second,
 	}
 	ig := NewDatabendIngester(cfg)
 	if !cfg.IsJsonTransform {
