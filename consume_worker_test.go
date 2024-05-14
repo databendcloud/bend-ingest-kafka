@@ -130,7 +130,7 @@ func TestConsumeKafka(t *testing.T) {
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
-		BatchMaxInterval:      10 * time.Second,
+		BatchMaxInterval:      10,
 	}
 	ig := NewDatabendIngester(cfg)
 	w := NewConsumeWorker(cfg, "worker1", ig)
@@ -179,7 +179,7 @@ func TestConsumerWithoutTransform(t *testing.T) {
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
-		BatchMaxInterval:      10 * time.Second,
+		BatchMaxInterval:      10,
 	}
 	ig := NewDatabendIngester(cfg)
 	if !cfg.IsJsonTransform {

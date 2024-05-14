@@ -78,7 +78,7 @@ func parseConfig() *config.Config {
 	flag.StringVar(&cfg.MockData, "mock-data", "", "generate mock data to databend")
 	flag.IntVar(&cfg.BatchSize, "batch-size", 1024, "Batch size")
 	flag.IntVar(&cfg.Workers, "workers", 1, "Number of workers")
-	flag.DurationVar(&cfg.BatchMaxInterval, "batch-max-interval", 30*time.Second, "Batch max interval")
+	flag.IntVar(&cfg.BatchMaxInterval, "batch-max-interval", 30, "Batch max interval")
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
 	flag.BoolVar(&cfg.CopyPurge, "copy-purge", false, "purge data before copy")
 	flag.BoolVar(&cfg.CopyForce, "copy-force", false, "force copy data")

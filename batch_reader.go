@@ -81,7 +81,7 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
-		maxBatchInterval: cfg.BatchMaxInterval,
+		maxBatchInterval: time.Duration(cfg.BatchMaxInterval),
 		kafkaReader:      kafkaReader,
 	}
 }
@@ -107,7 +107,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, erro
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              = []string{}
-		batchTimeout       = time.NewTimer(br.maxBatchInterval)
+		batchTimeout       = time.NewTimer(br.maxBatchInterval * time.Second)
 	)
 	defer batchTimeout.Stop()
 
@@ -120,7 +120,7 @@ _loop:
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			m, err := br.fetchMessageWithTimeout(ctx, br.maxBatchInterval)
+			m, err := br.fetchMessageWithTimeout(ctx, br.maxBatchInterval*time.Second)
 			if err != nil {
 				logrus.Warnf("Failed to read message from Kafka: %v", err)
 				continue

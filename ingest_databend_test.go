@@ -43,7 +43,7 @@ func TestIngestData(t *testing.T) {
 		IsJsonTransform:  true,
 		DatabendTable:    "test_ingest",
 		BatchSize:        10,
-		BatchMaxInterval: 100,
+		BatchMaxInterval: 10,
 	}
 	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)
