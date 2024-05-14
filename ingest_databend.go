@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"fmt"
 	"io/ioutil"
@@ -10,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	godatabend "github.com/databendcloud/databend-go"
+	godatabend "github.com/datafuselabs/databend-go"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,18 +39,20 @@ func NewDatabendIngester(cfg *config.Config) DatabendIngester {
 
 func (ig *databendIngester) reWriteTheJsonData(messagesBatch *MessagesBatch) ([]string, error) {
 	batchJsonData := messagesBatch.messages
+	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
 	recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\"}", ig.databendIngesterCfg.KafkaTopic, messagesBatch.partition, messagesBatch.lastMessageOffset)
 
 	for i := 0; i < len(batchJsonData); i++ {
 		// add the uuid, record_metadata and add_time fields
-		batchJsonData[i] = fmt.Sprintf("{\"uuid\":\"%s\",\"record_metadata\":\"%s\",\"add_time\":\"%s\",\"raw_data\":%s}",
+		d := fmt.Sprintf("{\"uuid\":\"%s\",\"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
 			uuid.New().String(),
 			recordMetadata,
 			time.Now().Format(time.RFC3339Nano),
 			batchJsonData[i])
+		afterHandleJsonData = append(afterHandleJsonData, d)
 	}
-	return nil, nil
+	return afterHandleJsonData, nil
 }
 
 func (ig *databendIngester) IngestData(messageBatch *MessagesBatch) error {
@@ -62,13 +65,15 @@ func (ig *databendIngester) IngestData(messageBatch *MessagesBatch) error {
 	// handle batchJsonData, if isTransform is false, then the data is already in NDJson format
 	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
 	// then insert the data into the databend table
-	if ig.databendIngesterCfg.IsJsonTransform {
+	if !ig.databendIngesterCfg.IsJsonTransform {
 		var err error
 		batchJsonData, err = ig.reWriteTheJsonData(messageBatch)
 		if err != nil {
 			return err
 		}
 	}
+	fmt.Println(":@@@@@")
+	fmt.Println(batchJsonData)
 
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
@@ -147,7 +152,7 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(fileName)),
 	}
 
-	return stage, apiClient.UploadToStage(stage, input, size)
+	return stage, apiClient.UploadToStage(context.Background(), stage, input, size)
 }
 
 func execute(db *sql.DB, sql string) error {

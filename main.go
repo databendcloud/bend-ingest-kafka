@@ -36,7 +36,7 @@ func main() {
 
 	cfg := parseConfig()
 	ig := NewDatabendIngester(cfg)
-	if cfg.IsJsonTransform {
+	if !cfg.IsJsonTransform {
 		err := ig.CreateRawTargetTable()
 		if err != nil {
 			panic(err)

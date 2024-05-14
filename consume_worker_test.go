@@ -25,11 +25,11 @@ type consumeWorkerTest struct {
 func prepareConsumeWorkerTest() *consumeWorkerTest {
 	testDatabendDSN := os.Getenv("TEST_DATABEND_DSN")
 	if testDatabendDSN == "" {
-		testDatabendDSN = "http://root:root@localhost:8002"
+		testDatabendDSN = "http://databend:databend@localhost:8000?presigned_url_disabled=true"
 	}
 	testKafkaBroker := os.Getenv("TEST_KAFKA_BROKER")
 	if testKafkaBroker == "" {
-		testKafkaBroker = "127.0.0.1:64103"
+		testKafkaBroker = "127.0.0.1:9092"
 	}
 
 	tt := &consumeWorkerTest{
@@ -102,7 +102,7 @@ func TestConsumeKafka(t *testing.T) {
 
 	db, err := sql.Open("databend", tt.databendDSN)
 	assert.NoError(t, err)
-	execute(db, `CREATE TABLE test_ingest (
+	execute(db, `CREATE OR REPLACE TABLE test_ingest (
 			i64 Int64,
 			u64 UInt64,
 			f64 Float64,
@@ -121,6 +121,7 @@ func TestConsumeKafka(t *testing.T) {
 		DatabendTable:         "test_ingest",
 		KafkaTopic:            "test",
 		KafkaBootstrapServers: tt.kafkaBrokers[0],
+		IsJsonTransform:       true,
 		KafkaConsumerGroup:    "test",
 		BatchSize:             10,
 		Workers:               1,
@@ -128,6 +129,44 @@ func TestConsumeKafka(t *testing.T) {
 		BatchMaxInterval:      10 * time.Second,
 	}
 	ig := NewDatabendIngester(cfg)
+	w := NewConsumeWorker(cfg, "worker1", ig)
+	log.Printf("start consume")
+	w.stepBatch(context.TODO())
+
+	result, err := db.Exec("select * from test_ingest")
+	assert.NoError(t, err)
+	r, _ := result.RowsAffected()
+	fmt.Println(r)
+}
+
+func TestConsumerWithoutTransform(t *testing.T) {
+	tt := prepareConsumeWorkerTest()
+
+	db, err := sql.Open("databend", tt.databendDSN)
+	assert.NoError(t, err)
+	//defer execute(db, "drop table if exists test_ingest;")
+	produceMessage()
+	fmt.Println("start consuming data")
+
+	cfg := &config.Config{
+		DatabendDSN:           tt.databendDSN,
+		DatabendTable:         "test_ingest",
+		KafkaTopic:            "test",
+		KafkaBootstrapServers: tt.kafkaBrokers[0],
+		IsJsonTransform:       false,
+		KafkaConsumerGroup:    "test",
+		BatchSize:             10,
+		Workers:               1,
+		DataFormat:            "json",
+		BatchMaxInterval:      5 * time.Second,
+	}
+	ig := NewDatabendIngester(cfg)
+	if !cfg.IsJsonTransform {
+		err := ig.CreateRawTargetTable()
+		if err != nil {
+			panic(err)
+		}
+	}
 	w := NewConsumeWorker(cfg, "worker1", ig)
 	log.Printf("start consume")
 	w.stepBatch(context.TODO())

@@ -18,7 +18,7 @@ type ingestDatabendTest struct {
 func prepareIngestDatabendTest() *ingestDatabendTest {
 	testDatabendDSN := os.Getenv("TEST_DATABEND_DSN")
 	if testDatabendDSN == "" {
-		testDatabendDSN = "http://root:root@localhost:8002"
+		testDatabendDSN = "http://root:root@localhost:8000"
 	}
 	return &ingestDatabendTest{databendDSN: testDatabendDSN}
 }
@@ -34,7 +34,7 @@ func TestParseKafkaServers(t *testing.T) {
 func TestIngestData(t *testing.T) {
 	tt := prepareIngestDatabendTest()
 	cfg := config.Config{
-		KafkaBootstrapServers: "127.0.0.1:64103",
+		KafkaBootstrapServers: "127.0.0.1:9002",
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
 		DatabendDSN:           tt.databendDSN,
