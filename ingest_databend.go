@@ -77,8 +77,6 @@ func (ig *databendIngester) IngestData(messageBatch *MessagesBatch) error {
 			return err
 		}
 	}
-	fmt.Println(":@@@@@")
-	fmt.Println(batchJsonData)
 
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
