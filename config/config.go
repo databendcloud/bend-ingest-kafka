@@ -7,19 +7,19 @@ import (
 )
 
 type Config struct {
-	KafkaBootstrapServers string `json:"kafkaBootstrapServers"`
-	KafkaTopic            string `json:"kafkaTopic"`
-	KafkaConsumerGroup    string `json:"KafkaConsumerGroup"`
+	KafkaBootstrapServers string `json:"kafkaBootstrapServers" default:"localhost:9092"`
+	KafkaTopic            string `json:"kafkaTopic" default:"test"`
+	KafkaConsumerGroup    string `json:"KafkaConsumerGroup" default:"test-group"`
 	MockData              string `json:"mockData"`
-	IsJsonTransform       bool   `json:"isJsonTransform"`
-	DatabendDSN           string `json:"databendDSN"`
+	IsJsonTransform       bool   `json:"isJsonTransform" default:"true"`
+	DatabendDSN           string `json:"databendDSN" default:"localhost:8000"`
 	DatabendTable         string `json:"databendTable"`
-	BatchSize             int    `json:"batchSize"`
-	BatchMaxInterval      int    `json:"batchMaxInterval"`
-	DataFormat            string `json:"dataFormat"`
-	Workers               int    `json:"workers"`
-	CopyPurge             bool   `json:"copyPurge"`
-	CopyForce             bool   `json:"copyForce"`
+	BatchSize             int    `json:"batchSize" default:"1000"`
+	BatchMaxInterval      int    `json:"batchMaxInterval" default:"30"`
+	DataFormat            string `json:"dataFormat" default:"json"`
+	Workers               int    `json:"workers" default:"1"`
+	CopyPurge             bool   `json:"copyPurge" default:"false"`
+	CopyForce             bool   `json:"copyForce" default:"false"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -36,8 +36,6 @@ func LoadConfig() (*Config, error) {
 		fmt.Println("Error decoding JSON:", err)
 		return &conf, err
 	}
-
-	fmt.Println(conf)
 
 	return &conf, nil
 }

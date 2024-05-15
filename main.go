@@ -82,6 +82,7 @@ func parseConfig() *config.Config {
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
 	flag.BoolVar(&cfg.CopyPurge, "copy-purge", false, "purge data before copy")
 	flag.BoolVar(&cfg.CopyForce, "copy-force", false, "force copy data")
+	flag.BoolVar(&cfg.IsJsonTransform, "is-json-transform", true, "transform json data")
 
 	flag.Parse()
 	return &cfg
