@@ -7,13 +7,18 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
+
+	"bend-ingest-kafka/config"
 )
 
 type MessagesBatch struct {
 	messages           []string
+	partition          int
 	commitFunc         func(context.Context) error
 	firstMessageOffset int64
 	lastMessageOffset  int64
+	key                string
+	createTime         time.Time
 }
 
 func (b *MessagesBatch) Empty() bool {
@@ -26,7 +31,7 @@ type BatchReader interface {
 	Close() error
 }
 
-func NewBatchReader(cfg *Config) BatchReader {
+func NewBatchReader(cfg *config.Config) BatchReader {
 	if cfg.MockData != "" {
 		return NewMockBatchReader(cfg.MockData, cfg.BatchSize)
 	}
@@ -68,7 +73,7 @@ type KafkaBatchReader struct {
 	maxBatchInterval time.Duration
 }
 
-func NewKafkaBatchReader(cfg *Config) *KafkaBatchReader {
+func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
 		GroupID: cfg.KafkaConsumerGroup,
@@ -76,7 +81,7 @@ func NewKafkaBatchReader(cfg *Config) *KafkaBatchReader {
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
-		maxBatchInterval: cfg.BatchMaxInterval,
+		maxBatchInterval: time.Duration(cfg.BatchMaxInterval),
 		kafkaReader:      kafkaReader,
 	}
 }
@@ -96,10 +101,13 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
 	var (
 		lastMessage        *kafka.Message
+		partition          int
+		key                string
+		createTime         time.Time
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              = []string{}
-		batchTimeout       = time.NewTimer(br.maxBatchInterval)
+		batchTimeout       = time.NewTimer(br.maxBatchInterval * time.Second)
 	)
 	defer batchTimeout.Stop()
 
@@ -112,7 +120,7 @@ _loop:
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			m, err := br.fetchMessageWithTimeout(ctx, br.maxBatchInterval)
+			m, err := br.fetchMessageWithTimeout(ctx, br.maxBatchInterval*time.Second)
 			if err != nil {
 				logrus.Warnf("Failed to read message from Kafka: %v", err)
 				continue
@@ -137,12 +145,19 @@ _loop:
 			return br.kafkaReader.CommitMessages(ctx, *lastMessage)
 		}
 		lastMessageOffset = lastMessage.Offset
+		partition = lastMessage.Partition
+		key = string(lastMessage.Key)
+		createTime = lastMessage.Time
+
 	}
 
 	return &MessagesBatch{
 		messages:           batch,
 		commitFunc:         commitFunc,
+		partition:          partition,
 		firstMessageOffset: firstMessageOffset,
 		lastMessageOffset:  lastMessageOffset,
+		key:                key,
+		createTime:         createTime,
 	}, nil
 }

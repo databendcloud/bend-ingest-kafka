@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"bend-ingest-kafka/config"
 )
 
 var (
@@ -20,21 +22,8 @@ var (
 	batchMaxInterval   = 5 * time.Second
 	dataFormat         = "json"
 	databendDSN        = "root:@tcp(127.0.0.1:3306)/test"
-	databendTable      = "test"
+	databendTable      = "default.test"
 )
-
-type Config struct {
-	KafkaBootstrapServers string
-	KafkaTopic            string
-	KafkaConsumerGroup    string
-	MockData              string
-	DatabendDSN           string
-	DatabendTable         string
-	BatchSize             int
-	BatchMaxInterval      time.Duration
-	DataFormat            string
-	Workers               int
-}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,7 +35,13 @@ func main() {
 	}()
 
 	cfg := parseConfig()
-	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
+	ig := NewDatabendIngester(cfg)
+	if !cfg.IsJsonTransform {
+		err := ig.CreateRawTargetTable()
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	wg := sync.WaitGroup{}
 	wg.Add(cfg.Workers)
@@ -60,9 +55,21 @@ func main() {
 	wg.Wait()
 }
 
-func parseConfig() *Config {
-	cfg := Config{}
+func parseConfigWithFile() *config.Config {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		panic(err)
+	}
+	return cfg
+}
 
+func parseConfig() *config.Config {
+	// if config/conf.json exists, use it
+	if _, err := os.Stat("config/conf.json"); err == nil {
+		return parseConfigWithFile()
+	}
+
+	cfg := config.Config{}
 	flag.StringVar(&cfg.KafkaBootstrapServers, "kafka-bootstrap-servers", "127.0.0.1:64103", "Kafka bootstrap servers")
 	flag.StringVar(&cfg.KafkaTopic, "kafka-topic", "test", "Kafka topic")
 	flag.StringVar(&cfg.KafkaConsumerGroup, "kafka-consumer-group", "kafka-bend-ingest", "Kafkaconsumer group")
@@ -71,8 +78,11 @@ func parseConfig() *Config {
 	flag.StringVar(&cfg.MockData, "mock-data", "", "generate mock data to databend")
 	flag.IntVar(&cfg.BatchSize, "batch-size", 1024, "Batch size")
 	flag.IntVar(&cfg.Workers, "workers", 1, "Number of workers")
-	flag.DurationVar(&cfg.BatchMaxInterval, "batch-max-interval", 30*time.Second, "Batch max interval")
+	flag.IntVar(&cfg.BatchMaxInterval, "batch-max-interval", 30, "Batch max interval")
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
+	flag.BoolVar(&cfg.CopyPurge, "copy-purge", false, "purge data before copy")
+	flag.BoolVar(&cfg.CopyForce, "copy-force", false, "force copy data")
+	flag.BoolVar(&cfg.IsJsonTransform, "is-json-transform", true, "transform json data")
 
 	flag.Parse()
 	return &cfg

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/test-go/testify/assert"
+
+	"bend-ingest-kafka/config"
 )
 
 type ingestDatabendTest struct {
@@ -16,7 +18,7 @@ type ingestDatabendTest struct {
 func prepareIngestDatabendTest() *ingestDatabendTest {
 	testDatabendDSN := os.Getenv("TEST_DATABEND_DSN")
 	if testDatabendDSN == "" {
-		testDatabendDSN = "http://root:root@localhost:8002"
+		testDatabendDSN = "http://root:root@localhost:8000"
 	}
 	return &ingestDatabendTest{databendDSN: testDatabendDSN}
 }
@@ -31,16 +33,17 @@ func TestParseKafkaServers(t *testing.T) {
 
 func TestIngestData(t *testing.T) {
 	tt := prepareIngestDatabendTest()
-	cfg := Config{
-		KafkaBootstrapServers: "127.0.0.1:64103",
+	cfg := config.Config{
+		KafkaBootstrapServers: "127.0.0.1:9002",
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
 		DatabendDSN:           tt.databendDSN,
 		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
 		DataFormat:       "json",
+		IsJsonTransform:  true,
 		DatabendTable:    "test_ingest",
 		BatchSize:        10,
-		BatchMaxInterval: 100,
+		BatchMaxInterval: 10,
 	}
 	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)
@@ -48,7 +51,8 @@ func TestIngestData(t *testing.T) {
 	defer execute(db, "drop table if exists test_ingest;")
 
 	testData := []string{"{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}", "{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}"}
-	ig := NewDatabendIngester(cfg.DatabendDSN, cfg.DatabendTable)
-	err = ig.IngestData(testData)
+	messagesBatch := &MessagesBatch{messages: testData}
+	ig := NewDatabendIngester(&cfg)
+	err = ig.IngestData(messagesBatch)
 	assert.NoError(t, err)
 }
