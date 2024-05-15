@@ -8,6 +8,8 @@ Ingest kafka data into databend
 go get https://github.com/databendcloud/bend-ingest-kafka
 ```
 
+Or download the binary from the [release page](https://github.com/databendcloud/bend-ingest-kafka/releases).
+
 # Usage
 
 ## Json transform mode
