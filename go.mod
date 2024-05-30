@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/codesuki/go-time-series v0.0.0-20210430055340-c4c8d8fa61d4
-	github.com/datafuselabs/databend-go v0.6.0
+	github.com/datafuselabs/databend-go v0.6.5
 	github.com/google/uuid v1.3.0
 	github.com/pkg/errors v0.9.1
 	github.com/segmentio/kafka-go v0.4.39
