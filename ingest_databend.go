@@ -63,6 +63,9 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBa
 
 func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) error {
 	startTime := time.Now()
+	if messageBatch == nil {
+		return nil
+	}
 	batchJsonData := messageBatch.ExtractMessageData()
 
 	if len(batchJsonData) == 0 {

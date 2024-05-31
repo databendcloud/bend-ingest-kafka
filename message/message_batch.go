@@ -24,7 +24,7 @@ type MessageData struct {
 }
 
 func (b *MessagesBatch) Empty() bool {
-	return len(b.Messages) == 0
+	return b == nil || len(b.Messages) == 0
 }
 
 func (b *MessagesBatch) ExtractMessageData() []string {
