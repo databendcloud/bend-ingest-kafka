@@ -46,13 +46,13 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 
 	logrus.Debug("DEBUG: ingest data")
 	if err := c.ig.IngestData(batch); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.firstMessageOffset, batch.lastMessageOffset, err)
+		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 		return err
 	}
 
 	logrus.Debug("DEBUG: commit")
-	if err := batch.commitFunc(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.lastMessageOffset, err)
+	if err := batch.CommitFunc(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.LastMessageOffset, err)
 		return err
 	}
 	return nil

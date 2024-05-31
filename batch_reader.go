@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -9,57 +10,49 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"bend-ingest-kafka/config"
+	"bend-ingest-kafka/message"
 )
 
-type MessagesBatch struct {
-	messages           []string
-	partition          int
-	commitFunc         func(context.Context) error
-	firstMessageOffset int64
-	lastMessageOffset  int64
-	key                string
-	createTime         time.Time
-}
-
-func (b *MessagesBatch) Empty() bool {
-	return len(b.messages) == 0
-}
-
 type BatchReader interface {
-	ReadBatch(ctx context.Context) (*MessagesBatch, error)
+	ReadBatch(ctx context.Context) (*message.MessagesBatch, error)
 
 	Close() error
 }
 
 func NewBatchReader(cfg *config.Config) BatchReader {
 	if cfg.MockData != "" {
-		return NewMockBatchReader(cfg.MockData, cfg.BatchSize)
+		messageData := message.MessageData{}
+		err := json.Unmarshal([]byte(cfg.MockData), &messageData)
+		if err != nil {
+			logrus.Fatalf("Failed to parse mock data: %v", err)
+		}
+		return NewMockBatchReader(messageData, cfg.BatchSize)
 	}
 	return NewKafkaBatchReader(cfg)
 }
 
 type MockBatchReader struct {
-	sampleData string
+	sampleData message.MessageData
 	batchSize  int
 }
 
-func NewMockBatchReader(sampleData string, batchSize int) *MockBatchReader {
+func NewMockBatchReader(sampleData message.MessageData, batchSize int) *MockBatchReader {
 	return &MockBatchReader{
 		sampleData: sampleData,
 		batchSize:  batchSize,
 	}
 }
 
-func (r *MockBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
-	messages := []string{}
+func (r *MockBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
+	messages := make([]message.MessageData, 0, r.batchSize)
 	for i := 0; i < r.batchSize; i++ {
 		messages = append(messages, r.sampleData)
 	}
-	return &MessagesBatch{
-		messages:           messages,
-		commitFunc:         func(_ context.Context) error { return nil },
-		firstMessageOffset: -1,
-		lastMessageOffset:  -1,
+	return &message.MessagesBatch{
+		Messages:           messages,
+		CommitFunc:         func(_ context.Context) error { return nil },
+		FirstMessageOffset: -1,
+		LastMessageOffset:  -1,
 	}, nil
 }
 
@@ -98,7 +91,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 	return &m, err
 }
 
-func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, error) {
+func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
 	var (
 		lastMessage        *kafka.Message
 		partition          int
@@ -106,7 +99,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*MessagesBatch, erro
 		createTime         time.Time
 		lastMessageOffset  int64
 		firstMessageOffset int64
-		batch              = []string{}
+		batch              []message.MessageData
 		batchTimeout       = time.NewTimer(br.maxBatchInterval * time.Second)
 	)
 	defer batchTimeout.Stop()
@@ -130,7 +123,11 @@ _loop:
 			}
 
 			data := string(m.Value)
-			batch = append(batch, strings.ReplaceAll(data, "\n", ""))
+			messageData := message.MessageData{
+				Data:       strings.ReplaceAll(data, "\n", ""),
+				DataOffset: m.Offset,
+			}
+			batch = append(batch, messageData)
 			lastMessage = m
 
 			if len(batch) >= br.batchSize {
@@ -151,13 +148,13 @@ _loop:
 
 	}
 
-	return &MessagesBatch{
-		messages:           batch,
-		commitFunc:         commitFunc,
-		partition:          partition,
-		firstMessageOffset: firstMessageOffset,
-		lastMessageOffset:  lastMessageOffset,
-		key:                key,
-		createTime:         createTime,
+	return &message.MessagesBatch{
+		Messages:           batch,
+		CommitFunc:         commitFunc,
+		Partition:          partition,
+		FirstMessageOffset: firstMessageOffset,
+		LastMessageOffset:  lastMessageOffset,
+		Key:                key,
+		CreateTime:         createTime,
 	}, nil
 }
