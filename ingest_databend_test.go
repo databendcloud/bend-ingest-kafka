@@ -9,6 +9,7 @@ import (
 	"github.com/test-go/testify/assert"
 
 	"bend-ingest-kafka/config"
+	"bend-ingest-kafka/message"
 )
 
 type ingestDatabendTest struct {
@@ -51,7 +52,11 @@ func TestIngestData(t *testing.T) {
 	defer execute(db, "drop table if exists test_ingest;")
 
 	testData := []string{"{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}", "{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}"}
-	messagesBatch := &MessagesBatch{messages: testData}
+	messageData := message.MessageData{
+		Data:       testData[0],
+		DataOffset: 1,
+	}
+	messagesBatch := &message.MessagesBatch{Messages: []message.MessageData{messageData}}
 	ig := NewDatabendIngester(&cfg)
 	err = ig.IngestData(messagesBatch)
 	assert.NoError(t, err)
