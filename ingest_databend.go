@@ -17,10 +17,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"bend-ingest-kafka/config"
+	"bend-ingest-kafka/message"
 )
 
 type DatabendIngester interface {
-	IngestData(messageBatch *MessagesBatch) error
+	IngestData(messageBatch *message.MessagesBatch) error
 	CreateRawTargetTable() error
 }
 
@@ -37,32 +38,32 @@ func NewDatabendIngester(cfg *config.Config) DatabendIngester {
 	}
 }
 
-func (ig *databendIngester) reWriteTheJsonData(messagesBatch *MessagesBatch) ([]string, error) {
-	batchJsonData := messagesBatch.messages
+func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBatch) ([]string, error) {
+	batchJsonData := messagesBatch.Messages
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
-	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
-	recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\", \"key\":\"%s\", \"create_time\":\"%s\"}",
-		ig.databendIngesterCfg.KafkaTopic,
-		messagesBatch.partition,
-		messagesBatch.lastMessageOffset,
-		messagesBatch.key,
-		messagesBatch.createTime.Format(time.RFC3339Nano))
 
 	for i := 0; i < len(batchJsonData); i++ {
+		// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
+		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\", \"key\":\"%s\", \"create_time\":\"%s\"}",
+			ig.databendIngesterCfg.KafkaTopic,
+			batchJsonData[i].Partition,
+			batchJsonData[i].DataOffset,
+			batchJsonData[i].Key,
+			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
 		// add the uuid, record_metadata and add_time fields
 		d := fmt.Sprintf("{\"uuid\":\"%s\",\"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
 			uuid.New().String(),
 			recordMetadata,
 			time.Now().Format(time.RFC3339Nano),
-			batchJsonData[i])
+			batchJsonData[i].Data)
 		afterHandleJsonData = append(afterHandleJsonData, d)
 	}
 	return afterHandleJsonData, nil
 }
 
-func (ig *databendIngester) IngestData(messageBatch *MessagesBatch) error {
+func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) error {
 	startTime := time.Now()
-	batchJsonData := messageBatch.messages
+	batchJsonData := messageBatch.ExtractMessageData()
 
 	if len(batchJsonData) == 0 {
 		return nil
