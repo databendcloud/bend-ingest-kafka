@@ -14,7 +14,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/test-go/testify/assert"
 
-	"bend-ingest-kafka/config"
+	"github.com/databendcloud/bend-ingest-kafka/config"
 )
 
 type consumeWorkerTest struct {

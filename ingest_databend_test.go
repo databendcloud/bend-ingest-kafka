@@ -10,8 +10,8 @@ import (
 
 	"github.com/test-go/testify/assert"
 
-	"bend-ingest-kafka/config"
-	"bend-ingest-kafka/message"
+	"github.com/databendcloud/bend-ingest-kafka/config"
+	"github.com/databendcloud/bend-ingest-kafka/message"
 )
 
 type ingestDatabendTest struct {

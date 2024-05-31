@@ -7,7 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"bend-ingest-kafka/config"
+	"github.com/databendcloud/bend-ingest-kafka/config"
 )
 
 type ConsumeWorker struct {

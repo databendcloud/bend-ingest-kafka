@@ -16,8 +16,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"bend-ingest-kafka/config"
-	"bend-ingest-kafka/message"
+	"github.com/databendcloud/bend-ingest-kafka/config"
+	"github.com/databendcloud/bend-ingest-kafka/message"
 )
 
 type DatabendIngester interface {
