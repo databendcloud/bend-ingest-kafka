@@ -18,6 +18,9 @@ type MessagesBatch struct {
 type MessageData struct {
 	Data       string
 	DataOffset int64
+	Partition  int
+	Key        string
+	CreateTime time.Time
 }
 
 func (b *MessagesBatch) Empty() bool {

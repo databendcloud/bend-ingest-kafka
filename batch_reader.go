@@ -126,6 +126,9 @@ _loop:
 			messageData := message.MessageData{
 				Data:       strings.ReplaceAll(data, "\n", ""),
 				DataOffset: m.Offset,
+				Partition:  m.Partition,
+				Key:        string(m.Key),
+				CreateTime: m.Time,
 			}
 			batch = append(batch, messageData)
 			lastMessage = m
