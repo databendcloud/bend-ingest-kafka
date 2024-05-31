@@ -34,15 +34,10 @@ jobs:
           TARGETS=${{matrix.TARGETS}}
           echo ::set-output name=OS::${TARGETS%/*}
           echo ::set-output name=ARCH::${TARGETS#*/}
-      - name: Get ldflags
-        id: get_ldflags
-        run: |
-          LDFLAGS=$(./version.sh)
-          echo "LDFLAGS=${LDFLAGS}" >> $GITHUB_ENV
       - name: Build
         run: |
           ${{ env.GO_BUILD_ENV }} GOOS=${{ steps.get_matrix.outputs.OS }} GOARCH=${{ steps.get_matrix.outputs.ARCH }} \
-            go build -ldflags "${{ env.LDFLAGS }}" \
+            go build \
             -o _bin/bend-ingest-kafka/${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}/bend-ingest-kafka
       - name: Compress
         run: |
