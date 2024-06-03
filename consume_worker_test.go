@@ -130,7 +130,7 @@ func TestConsumeKafka(t *testing.T) {
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
-		BatchMaxInterval:      10,
+		BatchMaxInterval:      3,
 		DisableVariantCheck:   false,
 	}
 	ig := NewDatabendIngester(cfg)
@@ -180,7 +180,7 @@ func TestConsumerWithoutTransform(t *testing.T) {
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
-		BatchMaxInterval:      10,
+		BatchMaxInterval:      3,
 		DisableVariantCheck:   true,
 	}
 	ig := NewDatabendIngester(cfg)
