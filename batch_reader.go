@@ -74,7 +74,7 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
-		maxBatchInterval: time.Duration(cfg.BatchMaxInterval),
+		maxBatchInterval: time.Duration(cfg.BatchMaxInterval) * time.Second,
 		kafkaReader:      kafkaReader,
 	}
 }
@@ -84,7 +84,7 @@ func (br *KafkaBatchReader) Close() error {
 }
 
 func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout time.Duration) (*kafka.Message, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, 2*timeout)
 	defer cancel()
 
 	m, err := br.kafkaReader.FetchMessage(ctx)
@@ -148,7 +148,6 @@ _loop:
 		partition = lastMessage.Partition
 		key = string(lastMessage.Key)
 		createTime = lastMessage.Time
-
 	}
 
 	return &message.MessagesBatch{

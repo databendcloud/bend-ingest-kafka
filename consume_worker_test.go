@@ -190,24 +190,14 @@ func TestConsumerWithoutTransform(t *testing.T) {
 	}
 	w := NewConsumeWorker(cfg, "worker1", ig)
 	log.Printf("start consume")
-	w.stepBatch(context.TODO())
+	err = w.stepBatch(context.TODO())
+	assert.NoError(t, err)
 
 	result, err := db.Query("select * from test_ingest_raw")
 	assert.NoError(t, err)
 	count := 0
 	for result.Next() {
 		count += 1
-		var i64 int64
-		var u64 uint64
-		var f64 float64
-		var s string
-		var s2 string
-		var a16 []int16
-		var a8 []uint8
-		var d time.Time
-		var t time.Time
-		err = result.Scan(&i64, &u64, &f64, &s, &s2, &a16, &a8, &d, &t)
-		fmt.Println(i64, u64, f64, s, s2, a16, a8, d, t)
 	}
 
 	assert.NotEqual(t, 0, count)
