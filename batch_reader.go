@@ -100,7 +100,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              []message.MessageData
-		batchTimeout       = time.NewTicker(br.maxBatchInterval * time.Second)
+		batchTimeout       = time.NewTimer(br.maxBatchInterval * time.Second)
 	)
 	defer batchTimeout.Stop()
 
