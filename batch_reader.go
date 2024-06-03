@@ -63,7 +63,7 @@ func (r *MockBatchReader) Close() error {
 type KafkaBatchReader struct {
 	kafkaReader      *kafka.Reader
 	batchSize        int
-	maxBatchInterval int
+	maxBatchInterval time.Duration
 }
 
 func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
@@ -74,7 +74,7 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
-		maxBatchInterval: cfg.BatchMaxInterval,
+		maxBatchInterval: time.Duration(cfg.BatchMaxInterval) * time.Second,
 		kafkaReader:      kafkaReader,
 	}
 }
