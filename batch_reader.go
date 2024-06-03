@@ -100,7 +100,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 		lastMessageOffset  int64
 		firstMessageOffset int64
 		batch              []message.MessageData
-		batchTimeout       = time.NewTicker(time.Duration(br.maxBatchInterval) * time.Second)
+		batchTimeout       = time.NewTicker(br.maxBatchInterval * time.Second)
 	)
 	defer batchTimeout.Stop()
 
@@ -113,7 +113,7 @@ _loop:
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			m, err := br.fetchMessageWithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
+			m, err := br.fetchMessageWithTimeout(ctx, br.maxBatchInterval*time.Second)
 			if err != nil {
 				logrus.Warnf("Failed to read message from Kafka: %v", err)
 				continue
