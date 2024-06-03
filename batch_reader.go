@@ -84,10 +84,21 @@ func (br *KafkaBatchReader) Close() error {
 }
 
 func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout time.Duration) (*kafka.Message, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*timeout)
+	ctx, cancel := context.WithTimeout(ctx, 5*timeout)
 	defer cancel()
 
-	m, err := br.kafkaReader.FetchMessage(ctx)
+	maxRetries := 5
+	var m kafka.Message
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		m, err = br.kafkaReader.FetchMessage(ctx)
+		if err != nil {
+			if ctx.Err() == context.Canceled || err == context.DeadlineExceeded {
+				continue
+			}
+			return nil, err
+		}
+	}
 	return &m, err
 }
 
