@@ -108,7 +108,7 @@ with `config.conf.json` and the table `default.kfk_test` will be created and the
 | databendDSN           | databend dsn            | no                  | "http://localhost:8000"         |
 | databendTable         | databend table          | no                  | "db1.tbl"                       |
 | batchSize             | batch size              | 1000                | 1000                            |
-| batchMaxInterval      | batch max interval      | 30                  | 30s                             |
+| batchMaxInterval      | batch max interval      | 30                  | 30                              |
 | dataFormat            | data format             | json                | "json"                          |
 | workers               | workers thread number   | 1                   | 1                               |
 | copyPurge             | copy purge              | false               | false                           |
