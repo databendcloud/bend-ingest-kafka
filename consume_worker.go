@@ -51,9 +51,17 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 	}
 
 	logrus.Debug("DEBUG: commit")
-	if err := batch.CommitFunc(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.LastMessageOffset, err)
-		return err
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		err = batch.CommitFunc(ctx)
+		if err != nil {
+			if err == context.Canceled || err == context.DeadlineExceeded {
+				logrus.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.LastMessageOffset, err)
+			return err
+		}
 	}
 	return nil
 }
