@@ -49,7 +49,7 @@ bend-ingest-kafka
   --databend-table="db1.tbl" \
   --data-format="json" \
   --batch-size=100000 \
-  --batch-max-interval=300s
+  --batch-max-interval=300
 ```
 
 #### config file mode
