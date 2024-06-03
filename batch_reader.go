@@ -94,6 +94,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 		m, err = br.kafkaReader.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() == context.Canceled || err == context.DeadlineExceeded {
+				logrus.Warnf("Failed to read message from Kafka: %v, attempt: %d", err, i+1)
 				continue
 			}
 			return nil, err
