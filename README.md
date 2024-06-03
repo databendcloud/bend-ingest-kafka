@@ -113,4 +113,3 @@ with `config.conf.json` and the table `default.kfk_test` will be created and the
 | workers               | workers thread number   | 1                   | 1                               |
 | copyPurge             | copy purge              | false               | false                           |
 | copyForce             | copy force              | false               | false                           |
-

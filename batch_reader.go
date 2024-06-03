@@ -123,6 +123,7 @@ _loop:
 			}
 
 			data := string(m.Value)
+			data = strings.ReplaceAll(data, "\t", "")
 			messageData := message.MessageData{
 				Data:       strings.ReplaceAll(data, "\n", ""),
 				DataOffset: m.Offset,
