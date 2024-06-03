@@ -83,6 +83,7 @@ func parseConfig() *config.Config {
 	flag.BoolVar(&cfg.CopyPurge, "copy-purge", false, "purge data before copy")
 	flag.BoolVar(&cfg.CopyForce, "copy-force", false, "force copy data")
 	flag.BoolVar(&cfg.IsJsonTransform, "is-json-transform", true, "transform json data")
+	flag.BoolVar(&cfg.DisableVariantCheck, "disable-variant-check", false, "disable variant check")
 
 	flag.Parse()
 	return &cfg

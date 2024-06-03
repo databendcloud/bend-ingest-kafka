@@ -172,8 +172,9 @@ func execute(db *sql.DB, sql string) error {
 }
 
 func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
-	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON COMPRESSION = AUTO) "+
-		"PURGE = %v FORCE = %v", ig.databendIngesterCfg.DatabendTable, stage.String(), ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce)
+	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO) "+
+		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", ig.databendIngesterCfg.DatabendTable, stage.String(),
+		ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce, ig.databendIngesterCfg.DisableVariantCheck)
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)

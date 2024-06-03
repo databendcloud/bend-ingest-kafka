@@ -18,8 +18,11 @@ type Config struct {
 	BatchMaxInterval      int    `json:"batchMaxInterval" default:"30"`
 	DataFormat            string `json:"dataFormat" default:"json"`
 	Workers               int    `json:"workers" default:"1"`
-	CopyPurge             bool   `json:"copyPurge" default:"false"`
-	CopyForce             bool   `json:"copyForce" default:"false"`
+
+	// related docs: https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table
+	CopyPurge           bool `json:"copyPurge" default:"false"`
+	CopyForce           bool `json:"copyForce" default:"false"`
+	DisableVariantCheck bool `json:"disableVariantCheck" default:"false"`
 }
 
 func LoadConfig() (*Config, error) {
