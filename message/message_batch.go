@@ -7,11 +7,9 @@ import (
 
 type MessagesBatch struct {
 	Messages           []MessageData
-	Partition          int
 	CommitFunc         func(context.Context) error
 	FirstMessageOffset int64
 	LastMessageOffset  int64
-	Key                string
 	CreateTime         time.Time
 }
 

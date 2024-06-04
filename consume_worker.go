@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -53,10 +54,13 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 	logrus.Debug("DEBUG: commit")
 	maxRetries := 5
 	for i := 0; i < maxRetries; i++ {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Duration(c.cfg.BatchMaxInterval)*time.Second)
 		err = batch.CommitFunc(ctx)
+		cancel()
 		if err != nil {
 			if err == context.Canceled || err == context.DeadlineExceeded {
 				logrus.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.LastMessageOffset, err)
