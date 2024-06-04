@@ -94,6 +94,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 		if err != nil {
 			if ctx.Err() == context.Canceled {
 				logrus.Errorf("Failed to fetch message, attempt %d: %v", i+1, err)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 			return nil, err
