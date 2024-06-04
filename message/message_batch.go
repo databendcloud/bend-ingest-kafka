@@ -10,7 +10,6 @@ type MessagesBatch struct {
 	CommitFunc         func(context.Context) error
 	FirstMessageOffset int64
 	LastMessageOffset  int64
-	CreateTime         time.Time
 }
 
 type MessageData struct {
