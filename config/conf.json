@@ -12,5 +12,8 @@
   "workers": 1,
   "copyPurge": false,
   "copyForce": false,
-  "disableVariantCheck": true
+  "disableVariantCheck": true,
+  "minBytes": 1024,
+  "maxBytes": 1048576,
+  "maxWait": 10
 }
