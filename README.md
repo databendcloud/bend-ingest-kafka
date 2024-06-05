@@ -98,19 +98,22 @@ with `config.conf.json` and the table `default.kfk_test` will be created and the
 
 
 ## Parameter References
-| Parameter             | Description             | Default             | example                         |
-| --------------------- |-------------------------|---------------------|---------------------------------|
-| kafkaBootstrapServers | kafka bootstrap servers | "127.0.0.1:64103"   | "127.0.0.1:9092,127.0.0.2:9092" |
-| kafkaTopic            | kafka topic             | "test"              | "test"                          |
-| KafkaConsumerGroup    | kafka consumer group    | "kafka-bend-ingest" | "test"                          |
-| mockData              | mock data               | ""                  | ""                              |
-| isJsonTransform       | is json transform       | true                | true                            |
-| databendDSN           | databend dsn            | no                  | "http://localhost:8000"         |
-| databendTable         | databend table          | no                  | "db1.tbl"                       |
-| batchSize             | batch size              | 1000                | 1000                            |
-| batchMaxInterval      | batch max interval      | 30                  | 30                              |
-| dataFormat            | data format             | json                | "json"                          |
-| workers               | workers thread number   | 1                   | 1                               |
-| copyPurge             | copy purge              | false               | false                           |
-| copyForce             | copy force              | false               | false                           |
-| DisableVariantCheck   | disable variant check   | false               | false                           |
+| Parameter             | Description             | Default           | example                       |
+|-----------------------|-------------------------|-------------------|-------------------------------|
+| kafkaBootstrapServers | kafka bootstrap servers | "127.0.0.1:64103" | "127.0.0.1:9092,127.0.0.2:9092" |
+| kafkaTopic            | kafka topic             | "test"            | "test"                        |
+| KafkaConsumerGroup    | kafka consumer group    | "kafka-bend-ingest" | "test"                        |
+| mockData              | mock data               | ""                | ""                            |
+| isJsonTransform       | is json transform       | true              | true                          |
+| databendDSN           | databend dsn            | no                | "http://localhost:8000"       |
+| databendTable         | databend table          | no                | "db1.tbl"                     |
+| batchSize             | batch size              | 1000              | 1000                          |
+| batchMaxInterval      | batch max interval      | 30                | 30                            |
+| dataFormat            | data format             | json              | "json"                        |
+| workers               | workers thread number   | 1                 | 1                             |
+| copyPurge             | copy purge              | false             | false                         |
+| copyForce             | copy force              | false             | false                         |
+| DisableVariantCheck   | disable variant check   | false             | false                         |
+| MinBytes              | min bytes               | 1024              | 1024                          |
+| MaxBytes              | max bytes               | 1048576           | 1048576                       |
+| MaxWait               | max wait                | 10                | 10                            |
