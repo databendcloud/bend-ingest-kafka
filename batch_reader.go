@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -99,6 +101,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 			if ctx.Err() == context.Canceled {
 				logrus.Errorf("Failed to fetch message, attempt %d: %v", i+1, err)
 				time.Sleep(1 * time.Second)
+				fmt.Printf("Stack trace: %s\n", debug.Stack())
 				continue
 			}
 			return nil, err
