@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -68,9 +70,13 @@ type KafkaBatchReader struct {
 
 func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: parseKafkaServers(cfg.KafkaBootstrapServers),
-		GroupID: cfg.KafkaConsumerGroup,
-		Topic:   cfg.KafkaTopic,
+		Brokers:          parseKafkaServers(cfg.KafkaBootstrapServers),
+		GroupID:          cfg.KafkaConsumerGroup,
+		Topic:            cfg.KafkaTopic,
+		MinBytes:         cfg.MinBytes,
+		MaxBytes:         cfg.MaxBytes,
+		ReadBatchTimeout: 2 * time.Duration(cfg.BatchMaxInterval) * time.Second,
+		MaxWait:          time.Duration(cfg.MaxWait) * time.Second,
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
@@ -95,6 +101,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 			if ctx.Err() == context.Canceled {
 				logrus.Errorf("Failed to fetch message, attempt %d: %v", i+1, err)
 				time.Sleep(1 * time.Second)
+				fmt.Printf("Stack trace: %s\n", debug.Stack())
 				continue
 			}
 			return nil, err

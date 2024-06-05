@@ -23,6 +23,24 @@ type Config struct {
 	CopyPurge           bool `json:"copyPurge" default:"false"`
 	CopyForce           bool `json:"copyForce" default:"false"`
 	DisableVariantCheck bool `json:"disableVariantCheck" default:"false"`
+	// MinBytes indicates to the broker the minimum batch size that the consumer
+	// will accept. Setting a high minimum when consuming from a low-volume topic
+	// may result in delayed delivery when the broker does not have enough data to
+	// satisfy the defined minimum.
+	//
+	// Default: 1KB
+	MinBytes int `json:"minBytes" default:"1024"`
+	// MaxBytes indicates to the broker the maximum batch size that the consumer
+	// will accept. The broker will truncate a message to satisfy this maximum, so
+	// choose a value that is high enough for your largest message size.
+	//
+	// Default: 20MB
+	MaxBytes int `json:"maxBytes" default:"20 * 1024 * 1024"`
+	// Maximum amount of time to wait for new data to come when fetching batches
+	// of messages from kafka.
+	//
+	// Default: 10s
+	MaxWait int `json:"maxWait" default:"10"`
 }
 
 func LoadConfig() (*Config, error) {
