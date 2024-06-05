@@ -51,8 +51,9 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBa
 			batchJsonData[i].Key,
 			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
 		// add the uuid, record_metadata and add_time fields
-		d := fmt.Sprintf("{\"uuid\":\"%s\",\"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
+		d := fmt.Sprintf("{\"uuid\":\"%s\",\"offset\":\"%d\" \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
 			uuid.New().String(),
+			batchJsonData[i].DataOffset,
 			recordMetadata,
 			time.Now().Format(time.RFC3339Nano),
 			batchJsonData[i].Data)
@@ -183,8 +184,32 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 	return execute(db, copyIntoSQL)
 }
 
+func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
+	replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s ON (%s) SELECT * FROM %s",
+		ig.databendIngesterCfg.DatabendTable, "offset", stage.String())
+	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
+	if err != nil {
+		logrus.Errorf("create db error: %v", err)
+		return err
+	}
+	defer func() {
+		if ig.databendIngesterCfg.CopyPurge {
+			err := execute(db, fmt.Sprintf("REMOVE  %s", stage.String()))
+			if err != nil {
+				logrus.Errorf("remove stage file :%s failed: %v", stage.String(), err)
+			}
+		}
+	}()
+	err = execute(db, replaceIntoSQL)
+	if err != nil {
+		logrus.Errorf("replace into failed: %v", err)
+		return err
+	}
+	return nil
+}
+
 func (ig *databendIngester) CreateRawTargetTable() error {
-	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, raw_data json, record_metadata json, add_time timestamp) ", ig.databendIngesterCfg.DatabendTable)
+	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, offset int64, raw_data json, record_metadata json, add_time timestamp) ", ig.databendIngesterCfg.DatabendTable)
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
