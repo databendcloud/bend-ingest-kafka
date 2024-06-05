@@ -77,6 +77,7 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 		MaxBytes:         cfg.MaxBytes,
 		ReadBatchTimeout: 2 * time.Duration(cfg.BatchMaxInterval) * time.Second,
 		MaxWait:          time.Duration(cfg.MaxWait) * time.Second,
+		CommitInterval:   time.Duration(cfg.CommitInterval) * time.Second,
 	})
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,

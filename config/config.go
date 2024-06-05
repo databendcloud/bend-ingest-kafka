@@ -41,6 +41,13 @@ type Config struct {
 	//
 	// Default: 10s
 	MaxWait int `json:"maxWait" default:"10"`
+	// CommitInterval indicates the interval at which offsets are committed to
+	// the broker.  If 0, commits will be handled synchronously.
+	//
+	// Default: 0
+	//
+	// Only used when GroupID is set
+	CommitInterval int `json:"commitInterval" default:"0"`
 }
 
 func LoadConfig() (*Config, error) {

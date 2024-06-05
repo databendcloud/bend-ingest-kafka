@@ -15,5 +15,6 @@
   "disableVariantCheck": true,
   "minBytes": 1024,
   "maxBytes": 1048576,
-  "maxWait": 10
+  "maxWait": 10,
+  "commitInterval": 1
 }
