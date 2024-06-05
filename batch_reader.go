@@ -16,7 +16,7 @@ import (
 )
 
 type BatchReader interface {
-	ReadBatch(ctx context.Context) (*message.MessagesBatch, error)
+	ReadBatch() (*message.MessagesBatch, error)
 
 	Close() error
 }
@@ -45,7 +45,7 @@ func NewMockBatchReader(sampleData message.MessageData, batchSize int) *MockBatc
 	}
 }
 
-func (r *MockBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
+func (r *MockBatchReader) ReadBatch() (*message.MessagesBatch, error) {
 	messages := make([]message.MessageData, 0, r.batchSize)
 	for i := 0; i < r.batchSize; i++ {
 		messages = append(messages, r.sampleData)
@@ -93,6 +93,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 	maxRetries := 5
 	var m kafka.Message
 	var err error
+	retryInterval := time.Second
 	for i := 0; i < maxRetries; i++ {
 		ctx, cancel := context.WithTimeout(ctx, 2*timeout)
 		m, err = br.kafkaReader.FetchMessage(ctx)
@@ -100,7 +101,8 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 		if err != nil {
 			if ctx.Err() == context.Canceled {
 				logrus.Errorf("Failed to fetch message, attempt %d: %v", i+1, err)
-				time.Sleep(1 * time.Second)
+				time.Sleep(retryInterval)
+				retryInterval <<= 1
 				fmt.Printf("Stack trace: %s\n", debug.Stack())
 				continue
 			}
@@ -111,7 +113,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 	return &m, err
 }
 
-func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
+func (br *KafkaBatchReader) ReadBatch() (*message.MessagesBatch, error) {
 	var (
 		lastMessageOffset  int64
 		firstMessageOffset int64
@@ -124,12 +126,10 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 _loop:
 	for {
 		select {
-		case <-ctx.Done():
-			logrus.Printf("exited")
-			return nil, nil
 		case <-batchTimeout.C:
 			break _loop
 		default:
+			ctx := context.Background()
 			m, err := br.fetchMessageWithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
 			if err != nil {
 				logrus.Warnf("Failed to read message from Kafka: %v", err)
