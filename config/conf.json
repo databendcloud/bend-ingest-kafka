@@ -6,7 +6,7 @@
   "isJsonTransform": true,
   "databendDSN": "https://cloudapp:password@tn3ftqihs--medium-p8at.gw.aws-us-east-2.default.databend.com:443",
   "databendTable": "default.kfk_test",
-  "batchSize": 1,
+  "batchSize": 10,
   "batchMaxInterval": 5,
   "dataFormat": "json",
   "workers": 1,
