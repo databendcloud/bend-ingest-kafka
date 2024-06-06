@@ -33,9 +33,9 @@ func (c *ConsumeWorker) Close() {
 	c.batchReader.Close()
 }
 
-func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
+func (c *ConsumeWorker) stepBatch() error {
 	logrus.Debug("read batch")
-	batch, err := c.batchReader.ReadBatch(ctx)
+	batch, err := c.batchReader.ReadBatch()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
 		return err
@@ -54,12 +54,15 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 
 	logrus.Debug("DEBUG: commit")
 	maxRetries := 5
+	retryInterval := time.Second
 	for i := 0; i < maxRetries; i++ {
+		ctx := context.Background()
 		err = batch.CommitFunc(ctx)
 		if err != nil {
 			if err == context.Canceled {
 				logrus.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
-				time.Sleep(1 * time.Second)
+				time.Sleep(retryInterval)
+				retryInterval <<= 1
 				fmt.Printf("Stack trace: %s\n", debug.Stack())
 				continue
 			}
@@ -79,7 +82,7 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 			c.Close()
 			return
 		default:
-			c.stepBatch(ctx)
+			c.stepBatch()
 		}
 	}
 }
