@@ -51,9 +51,10 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBa
 			batchJsonData[i].Key,
 			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
 		// add the uuid, record_metadata and add_time fields
-		d := fmt.Sprintf("{\"uuid\":\"%s\",\"offset\":\"%d\" \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
+		d := fmt.Sprintf("{\"uuid\":\"%s\",\"offset\":\"%d\", \"partition\":\"%d\", \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
 			uuid.New().String(),
 			batchJsonData[i].DataOffset,
+			batchJsonData[i].Partition,
 			recordMetadata,
 			time.Now().Format(time.RFC3339Nano),
 			batchJsonData[i].Data)
@@ -209,7 +210,7 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 }
 
 func (ig *databendIngester) CreateRawTargetTable() error {
-	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, offset int64, raw_data json, record_metadata json, add_time timestamp) ", ig.databendIngesterCfg.DatabendTable)
+	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, offset int64, partition int, raw_data json, record_metadata json, add_time timestamp) ", ig.databendIngesterCfg.DatabendTable)
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
