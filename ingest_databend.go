@@ -210,7 +210,8 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 }
 
 func (ig *databendIngester) CreateRawTargetTable() error {
-	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, offset BitInt, partition int, raw_data json, record_metadata json, add_time timestamp)", ig.databendIngesterCfg.DatabendTable)
+	// offset and partition is the key word of databend, so we need to use koffset and kpartition instead
+	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, koffset BitInt, kpartition int, raw_data json, record_metadata json, add_time timestamp)", ig.databendIngesterCfg.DatabendTable)
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
