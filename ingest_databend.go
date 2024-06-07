@@ -186,8 +186,8 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 }
 
 func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
-	replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s ON (%s) SELECT * FROM %s",
-		ig.databendIngesterCfg.DatabendTable, "offset", stage.String())
+	replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s ON (%s,%s) SELECT * FROM %s",
+		ig.databendIngesterCfg.DatabendTable, "offset", "partition", stage.String())
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
@@ -210,7 +210,7 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 }
 
 func (ig *databendIngester) CreateRawTargetTable() error {
-	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, offset int64, partition int, raw_data json, record_metadata json, add_time timestamp) ", ig.databendIngesterCfg.DatabendTable)
+	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, offset BitInt, partition int, raw_data json, record_metadata json, add_time timestamp)", ig.databendIngesterCfg.DatabendTable)
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)
