@@ -34,32 +34,35 @@ func (c *ConsumeWorker) Close() {
 }
 
 func (c *ConsumeWorker) stepBatch() error {
-	logrus.Debug("read batch")
+	l := logrus.WithFields(logrus.Fields{"consumer_worker": "stepBatch"})
+	l.Debug("read batch")
 	batch, err := c.batchReader.ReadBatch()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
 		return err
 	}
-	logrus.Debug("got batch")
+	l.Debug("got batch")
 
 	if batch.Empty() {
 		return err
 	}
 
-	logrus.Debug("DEBUG: ingest data")
+	l.Debug("DEBUG: ingest data")
 	if c.cfg.UseReplaceMode {
 		if err := c.ig.IngestParquetData(batch); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+			l.Errorf("Failed to ingest data between %d-%d into Databend: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
 		}
 	} else {
 		if err := c.ig.IngestData(batch); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+			l.Errorf("Failed to ingest data between %d-%d into Databend: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
 		}
 	}
 
-	logrus.Debug("DEBUG: commit")
+	l.Debug("DEBUG: commit")
 	maxRetries := 5
 	retryInterval := time.Second
 	for i := 0; i < maxRetries; i++ {
@@ -67,13 +70,14 @@ func (c *ConsumeWorker) stepBatch() error {
 		err = batch.CommitFunc(ctx)
 		if err != nil {
 			if err == context.Canceled {
-				logrus.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
+				l.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
 				time.Sleep(retryInterval)
 				retryInterval <<= 1
 				fmt.Printf("Stack trace: %s\n", debug.Stack())
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.LastMessageOffset, err)
+			l.Errorf("Failed to commit messages at %d: %v", batch.LastMessageOffset, err)
 			return err
 		}
 	}

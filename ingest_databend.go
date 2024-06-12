@@ -150,6 +150,7 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 }
 
 func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) error {
+	l := logrus.WithFields(logrus.Fields{"ingest_databend": "IngestData"})
 	startTime := time.Now()
 	if messageBatch == nil {
 		return nil
@@ -166,22 +167,26 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 		var err error
 		batchJsonData, err = ig.reWriteTheJsonData(messageBatch)
 		if err != nil {
+			l.Errorf("re-write the json data failed: %v", err)
 			return err
 		}
 	}
 
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
+		l.Errorf("generate NDJson file failed: %v", err)
 		return err
 	}
 
 	stage, err := ig.uploadToStage(fileName)
 	if err != nil {
+		l.Errorf("upload to stage failed: %v", err)
 		return err
 	}
 
 	err = ig.copyInto(stage)
 	if err != nil {
+		l.Errorf("copy into failed: %v", err)
 		return err
 	}
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
