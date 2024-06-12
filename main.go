@@ -29,7 +29,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		sigch := make(chan os.Signal, 1)
-		signal.Notify(sigch, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM)
+		signal.Notify(sigch, syscall.SIGQUIT, syscall.SIGTERM)
 		<-sigch
 		cancel()
 	}()
