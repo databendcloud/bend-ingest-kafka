@@ -114,6 +114,7 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 }
 
 func (br *KafkaBatchReader) ReadBatch() (*message.MessagesBatch, error) {
+	l := logrus.WithFields(logrus.Fields{"kafka_batch_reader": "ReadBatch"})
 	var (
 		lastMessageOffset  int64
 		firstMessageOffset int64
@@ -132,7 +133,7 @@ _loop:
 			ctx := context.Background()
 			m, err := br.fetchMessageWithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
 			if err != nil {
-				logrus.Warnf("Failed to read message from Kafka: %v", err)
+				l.Warnf("Failed to read message from Kafka: %v", err)
 				continue
 			}
 			if firstMessageOffset == 0 {
@@ -163,7 +164,7 @@ _loop:
 			for partition, ms := range allMessages {
 				err := br.kafkaReader.CommitMessages(ctx, *ms)
 				if err != nil {
-					logrus.Errorf("Failed to commit message at partition %d, offset %d: %v", partition, ms.Offset, err)
+					l.Errorf("Failed to commit message at partition %d, offset %d: %v", partition, ms.Offset, err)
 					return err
 				}
 				lastMessageOffset = ms.Offset
