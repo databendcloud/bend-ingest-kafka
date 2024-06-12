@@ -39,6 +39,7 @@ func (c *ConsumeWorker) stepBatch() error {
 	batch, err := c.batchReader.ReadBatch()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
+		l.Errorf("Failed to read batch from Kafka: %v", err)
 		return err
 	}
 	l.Debug("got batch")

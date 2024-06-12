@@ -78,6 +78,7 @@ func TestIngestDataIsJsonTransform(t *testing.T) {
 		err = result.Scan(&name, &age, &isMarried)
 		fmt.Println(name, age, isMarried)
 	}
+	assert.NotEqual(t, 0, count)
 }
 
 type recordMetadata struct {
@@ -138,7 +139,7 @@ func TestIngestDataWithoutJsonTransform(t *testing.T) {
 	err = json.Unmarshal([]byte(record_metadata), res)
 	fmt.Println(*res)
 	assert.NoError(t, err)
-	assert.Equal(t, fmt.Sprintf("%d", messageData.DataOffset), res.Offset)
+	assert.Equal(t, messageData.DataOffset, res.Offset)
 }
 
 func TestIngestWithReplaceMode(t *testing.T) {

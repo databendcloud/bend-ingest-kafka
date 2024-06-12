@@ -102,6 +102,7 @@ func (ig *databendIngester) reWriteParquetJsonData(messagesBatch *message.Messag
 }
 
 func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatch) error {
+	l := logrus.WithFields(logrus.Fields{"ingest_databend": "IngestParquetData"})
 	startTime := time.Now()
 	if messageBatch == nil {
 		return nil
@@ -118,28 +119,32 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 		var err error
 		batchJsonData, err = ig.reWriteParquetJsonData(messageBatch)
 		if err != nil {
+			l.Errorf("re-write the json data failed: %v", err)
 			return err
 		}
-		fmt.Println("batchJsonData", batchJsonData)
 	}
 	fileName, bytesSize, err := ig.generateParquetFile(batchJsonData)
 	if err != nil {
+		l.Errorf("generate parquet file failed: %v", err)
 		return err
 	}
 
 	stage, err := ig.uploadToStage(fileName)
 	if err != nil {
+		l.Errorf("upload to stage failed: %v", err)
 		return err
 	}
 
 	if ig.databendIngesterCfg.UseReplaceMode {
 		err = ig.replaceInto(stage)
 		if err != nil {
+			l.Errorf("replace into failed: %v", err)
 			return err
 		}
 	} else {
 		err = ig.copyInto(stage)
 		if err != nil {
+			l.Errorf("copy into failed: %v", err)
 			return err
 		}
 	}
