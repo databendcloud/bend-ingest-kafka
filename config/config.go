@@ -41,6 +41,10 @@ type Config struct {
 	//
 	// Default: 10s
 	MaxWait int `json:"maxWait" default:"10"`
+
+	// UseReplaceMode determines whether to use the REPLACE INTO statement to insert data.
+	// replace into will upsert data
+	UseReplaceMode bool `json:"useReplaceMode" default:"false"`
 }
 
 func LoadConfig() (*Config, error) {

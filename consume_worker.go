@@ -47,9 +47,16 @@ func (c *ConsumeWorker) stepBatch() error {
 	}
 
 	logrus.Debug("DEBUG: ingest data")
-	if err := c.ig.IngestData(batch); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
-		return err
+	if c.cfg.UseReplaceMode {
+		if err := c.ig.IngestParquetData(batch); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+			return err
+		}
+	} else {
+		if err := c.ig.IngestData(batch); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+			return err
+		}
 	}
 
 	logrus.Debug("DEBUG: commit")

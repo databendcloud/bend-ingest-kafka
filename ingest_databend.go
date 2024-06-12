@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -15,6 +16,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/xitongsys/parquet-go/writer"
+
+	"github.com/xitongsys/parquet-go-source/local"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
 	"github.com/databendcloud/bend-ingest-kafka/message"
@@ -22,6 +26,7 @@ import (
 
 type DatabendIngester interface {
 	IngestData(messageBatch *message.MessagesBatch) error
+	IngestParquetData(messageBatch *message.MessagesBatch) error
 	CreateRawTargetTable() error
 }
 
@@ -44,14 +49,14 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBa
 
 	for i := 0; i < len(batchJsonData); i++ {
 		// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
-		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":\"%d\",\"offset\":\"%d\", \"key\":\"%s\", \"create_time\":\"%s\"}",
+		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":%d,\"offset\":%d, \"key\":\"%s\", \"create_time\":\"%s\"}",
 			ig.databendIngesterCfg.KafkaTopic,
 			batchJsonData[i].Partition,
 			batchJsonData[i].DataOffset,
 			batchJsonData[i].Key,
 			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
 		// add the uuid, record_metadata and add_time fields
-		d := fmt.Sprintf("{\"uuid\":\"%s\",\"offset\":\"%d\", \"partition\":\"%d\", \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
+		d := fmt.Sprintf("{\"uuid\":\"%s\",\"koffset\":%d, \"kpartition\":%d, \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
 			uuid.New().String(),
 			batchJsonData[i].DataOffset,
 			batchJsonData[i].Partition,
@@ -61,6 +66,87 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBa
 		afterHandleJsonData = append(afterHandleJsonData, d)
 	}
 	return afterHandleJsonData, nil
+}
+
+func (ig *databendIngester) reWriteParquetJsonData(messagesBatch *message.MessagesBatch) ([]string, error) {
+	batchJsonData := messagesBatch.Messages
+	afterHandleJsonData := make([]string, 0, len(batchJsonData))
+
+	for i := 0; i < len(batchJsonData); i++ {
+		// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
+		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":%d,\"offset\":%d, \"key\":\"%s\", \"create_time\":\"%s\"}",
+			ig.databendIngesterCfg.KafkaTopic,
+			batchJsonData[i].Partition,
+			batchJsonData[i].DataOffset,
+			batchJsonData[i].Key,
+			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
+		recordMetadataJson, err := json.Marshal(recordMetadata)
+		if err != nil {
+			return nil, err
+		}
+		dataJson, err := json.Marshal(batchJsonData[i].Data)
+		if err != nil {
+			return nil, err
+		}
+		// add the uuid, record_metadata and add_time fields
+		d := fmt.Sprintf("{\"uuid\":\"%s\",\"koffset\":%d, \"kpartition\":%d, \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
+			uuid.New().String(),
+			batchJsonData[i].DataOffset,
+			batchJsonData[i].Partition,
+			string(recordMetadataJson),
+			time.Now().Format(time.RFC3339Nano),
+			string(dataJson))
+		afterHandleJsonData = append(afterHandleJsonData, d)
+	}
+	return afterHandleJsonData, nil
+}
+
+func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatch) error {
+	startTime := time.Now()
+	if messageBatch == nil {
+		return nil
+	}
+	batchJsonData := messageBatch.ExtractMessageData()
+
+	if len(batchJsonData) == 0 {
+		return nil
+	}
+	// handle batchJsonData, if isTransform is false, then the data is already in NDJson format
+	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
+	// then insert the data into the databend table
+	if !ig.databendIngesterCfg.IsJsonTransform {
+		var err error
+		batchJsonData, err = ig.reWriteParquetJsonData(messageBatch)
+		if err != nil {
+			return err
+		}
+		fmt.Println("batchJsonData", batchJsonData)
+	}
+	fileName, bytesSize, err := ig.generateParquetFile(batchJsonData)
+	if err != nil {
+		return err
+	}
+
+	stage, err := ig.uploadToStage(fileName)
+	if err != nil {
+		return err
+	}
+
+	if ig.databendIngesterCfg.UseReplaceMode {
+		err = ig.replaceInto(stage)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = ig.copyInto(stage)
+		if err != nil {
+			return err
+		}
+	}
+	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
+	stats := ig.statsRecorder.Stats(time.Since(startTime))
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
+	return nil
 }
 
 func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) error {
@@ -98,11 +184,68 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 	if err != nil {
 		return err
 	}
-
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
 	stats := ig.statsRecorder.Stats(time.Since(startTime))
 	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
 	return nil
+}
+
+func (ig *databendIngester) generateParquetFile(batchJsonData []string) (string, int, error) {
+
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("databend-ingest-%d-%s.parquet", time.Now().Unix(), uuid.New().String()))
+	records := make([]*message.RecordForParquet, 0, len(batchJsonData))
+
+	fw, err := local.NewLocalFileWriter(tmpFile)
+	if err != nil {
+		log.Println("Can't create local file", err)
+		return "", 0, err
+	}
+
+	pw, err := writer.NewParquetWriter(fw, new(message.RecordForParquet), 4)
+	if err != nil {
+		log.Println("Can't create parquet writer", err)
+		return "", 0, err
+	}
+	for _, data := range batchJsonData {
+		var record message.RecordForParquet
+		fmt.Println("####")
+		fmt.Println(data)
+		err := json.Unmarshal([]byte(data), &record)
+		fmt.Println("@@@@@")
+		fmt.Println(record)
+		if err != nil {
+			log.Println("Can't unmarshal json", err)
+			return "", 0, err
+		}
+		records = append(records, &record)
+	}
+
+	for i := range records {
+		if err = pw.Write(records[i]); err != nil {
+			log.Println("Write record error", err)
+			return "", 0, err
+		}
+	}
+	if err = pw.WriteStop(); err != nil {
+		log.Println("WriteStop error", err)
+		return "", 0, err
+	}
+
+	if err = fw.Close(); err != nil {
+		log.Println("File close error", err)
+		return "", 0, err
+	}
+	fileSize := getFileSize(tmpFile)
+
+	return tmpFile, fileSize, nil
+}
+
+func getFileSize(filename string) int {
+	fi, err := os.Stat(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return int(fi.Size())
 }
 
 func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, int, error) {
@@ -186,8 +329,8 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 }
 
 func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
-	replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s ON (%s,%s) SELECT * FROM %s",
-		ig.databendIngesterCfg.DatabendTable, "offset", "partition", stage.String())
+	replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s ON (%s,%s) SELECT * FROM %s  (FILE_FORMAT => 'parquet')",
+		ig.databendIngesterCfg.DatabendTable, "koffset", "kpartition", stage.String())
 	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
 	if err != nil {
 		logrus.Errorf("create db error: %v", err)

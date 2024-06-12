@@ -31,3 +31,12 @@ func (b *MessagesBatch) ExtractMessageData() []string {
 	}
 	return data
 }
+
+type RecordForParquet struct {
+	UUID           string `json:"uuid" parquet:"name=uuid, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	KOffset        int64  `json:"koffset" parquet:"name=koffset, type=INT64"`
+	KPartition     int32  `json:"kpartition" parquet:"name=kpartition, type=INT32"`
+	RawData        string `json:"raw_data" parquet:"name=raw_data, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	RecordMetadata string `json:"record_metadata" parquet:"name=record_metadata, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	AddTime        string `json:"add_time" parquet:"name=add_time, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+}
