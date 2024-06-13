@@ -144,6 +144,7 @@ func TestIngestDataWithoutJsonTransform(t *testing.T) {
 
 func TestIngestWithReplaceMode(t *testing.T) {
 	tt := prepareIngestDatabendTest()
+	tableName := "default.test_ingest_replace"
 	cfg := config.Config{
 		KafkaBootstrapServers: "127.0.0.1:9002",
 		KafkaTopic:            "test",
@@ -152,16 +153,16 @@ func TestIngestWithReplaceMode(t *testing.T) {
 		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
 		DataFormat:       "json",
 		IsJsonTransform:  false,
-		DatabendTable:    "default.test_ingest_replace",
+		DatabendTable:    tableName,
 		BatchSize:        10,
 		BatchMaxInterval: 10,
 		UseReplaceMode:   true,
 	}
 	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)
-	err = execute(db, "create or replace table default.test_ingest_replace(uuid String, koffset bigint, kpartition int, raw_data JSON, record_metadata JSON, add_time timestamp);")
+	err = execute(db, fmt.Sprintf("create or replace table %s (uuid String, koffset bigint, kpartition int, raw_data JSON, record_metadata JSON, add_time timestamp);", tableName))
 	assert.NoError(t, err)
-	defer execute(db, "drop table if exists default.test_ingest_replace;")
+	defer execute(db, fmt.Sprintf("drop table if exists %s;", tableName))
 
 	testData := []string{"{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}", "{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}"}
 	messageData := message.MessageData{
@@ -180,7 +181,7 @@ func TestIngestWithReplaceMode(t *testing.T) {
 	assert.NoError(t, err)
 
 	// check the data
-	result, err := db.Query("select * from default.test_ingest_replace")
+	result, err := db.Query(fmt.Sprintf("select * from %s", tableName))
 	assert.NoError(t, err)
 	count := 0
 	var uuid string
@@ -188,7 +189,7 @@ func TestIngestWithReplaceMode(t *testing.T) {
 	var kpartition int
 	var raw_data string
 	var record_metadata string
-	var add_time time.Time
+	var add_time string
 	for result.Next() {
 		count += 1
 		err = result.Scan(&uuid, &koffset, &kpartition, &raw_data, &record_metadata, &add_time)

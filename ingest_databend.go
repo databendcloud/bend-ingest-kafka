@@ -115,13 +115,11 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 	// handle batchJsonData, if isTransform is false, then the data is already in NDJson format
 	// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
 	// then insert the data into the databend table
-	if !ig.databendIngesterCfg.IsJsonTransform {
-		var err error
-		batchJsonData, err = ig.reWriteParquetJsonData(messageBatch)
-		if err != nil {
-			l.Errorf("re-write the json data failed: %v", err)
-			return err
-		}
+	var err error
+	batchJsonData, err = ig.reWriteParquetJsonData(messageBatch)
+	if err != nil {
+		l.Errorf("re-write the json data failed: %v", err)
+		return err
 	}
 	fileName, bytesSize, err := ig.generateParquetFile(batchJsonData)
 	if err != nil {
@@ -135,19 +133,12 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 		return err
 	}
 
-	if ig.databendIngesterCfg.UseReplaceMode {
-		err = ig.replaceInto(stage)
-		if err != nil {
-			l.Errorf("replace into failed: %v", err)
-			return err
-		}
-	} else {
-		err = ig.copyInto(stage)
-		if err != nil {
-			l.Errorf("copy into failed: %v", err)
-			return err
-		}
+	err = ig.replaceInto(stage)
+	if err != nil {
+		l.Errorf("replace into failed: %v", err)
+		return err
 	}
+
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
 	stats := ig.statsRecorder.Stats(time.Since(startTime))
 	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
@@ -201,30 +192,27 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 }
 
 func (ig *databendIngester) generateParquetFile(batchJsonData []string) (string, int, error) {
+	l := logrus.WithFields(logrus.Fields{"ingest_databend": "generateParquetFile"})
 
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("databend-ingest-%d-%s.parquet", time.Now().Unix(), uuid.New().String()))
 	records := make([]*message.RecordForParquet, 0, len(batchJsonData))
 
 	fw, err := local.NewLocalFileWriter(tmpFile)
 	if err != nil {
-		log.Println("Can't create local file", err)
+		l.Errorf("Can't create local file writer: %v", err)
 		return "", 0, err
 	}
 
 	pw, err := writer.NewParquetWriter(fw, new(message.RecordForParquet), 4)
 	if err != nil {
-		log.Println("Can't create parquet writer", err)
+		l.Errorf("Can't create parquet writer: %v", err)
 		return "", 0, err
 	}
 	for _, data := range batchJsonData {
 		var record message.RecordForParquet
-		fmt.Println("####")
-		fmt.Println(data)
 		err := json.Unmarshal([]byte(data), &record)
-		fmt.Println("@@@@@")
-		fmt.Println(record)
 		if err != nil {
-			log.Println("Can't unmarshal json", err)
+			l.Errorf("Unmarshal json data failed: %v", err)
 			return "", 0, err
 		}
 		records = append(records, &record)
@@ -232,17 +220,17 @@ func (ig *databendIngester) generateParquetFile(batchJsonData []string) (string,
 
 	for i := range records {
 		if err = pw.Write(records[i]); err != nil {
-			log.Println("Write record error", err)
+			l.Errorf("Write record failed: %v", err)
 			return "", 0, err
 		}
 	}
 	if err = pw.WriteStop(); err != nil {
-		log.Println("WriteStop error", err)
+		l.Errorf("Write stop failed: %v", err)
 		return "", 0, err
 	}
 
 	if err = fw.Close(); err != nil {
-		log.Println("File close error", err)
+		l.Errorf("Close file writer failed: %v", err)
 		return "", 0, err
 	}
 	fileSize := getFileSize(tmpFile)

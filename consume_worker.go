@@ -49,7 +49,7 @@ func (c *ConsumeWorker) stepBatch() error {
 	}
 
 	l.Debug("DEBUG: ingest data")
-	if c.cfg.UseReplaceMode {
+	if c.cfg.UseReplaceMode && !c.cfg.IsJsonTransform {
 		if err := c.ig.IngestParquetData(batch); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			l.Errorf("Failed to ingest data between %d-%d into Databend: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
