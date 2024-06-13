@@ -73,7 +73,6 @@ func (ig *databendIngester) reWriteParquetJsonData(messagesBatch *message.Messag
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 
 	for i := 0; i < len(batchJsonData); i++ {
-		// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
 		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":%d,\"offset\":%d, \"key\":\"%s\", \"create_time\":\"%s\"}",
 			ig.databendIngesterCfg.KafkaTopic,
 			batchJsonData[i].Partition,
