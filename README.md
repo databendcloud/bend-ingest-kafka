@@ -79,7 +79,7 @@ and execute the command
 
 ## Raw mode
 The raw mode is used to ingest the raw data into databend table, you can use it by setting the `isJsonTransform` to `false`.
-In this mode, we will create a table with the name `databendTable` which columns are `(uuid,raw_data,record_metadata,add_time)` and ingest the raw data into this table.
+In this mode, we will create a table with the name `databendTable` which columns are `(uuid, koffset,kpartition, raw_data, record_metadata, add_time)` and ingest the raw data into this table.
 The `record_metadata` is the metadata of the kafka record which contains the `topic`, `partition`, `offset`, `create_time`, `key`, and the `add_time` is the time when the record is added into databend.
 
 ### Example
