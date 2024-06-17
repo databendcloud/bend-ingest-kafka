@@ -60,7 +60,14 @@ func parseConfigWithFile() *config.Config {
 	if err != nil {
 		panic(err)
 	}
+	validateConfig(cfg)
 	return cfg
+}
+
+func validateConfig(cfg *config.Config) {
+	if cfg.IsJsonTransform && cfg.UseReplaceMode {
+		panic("replace mode can only be used when is-json-transform is false")
+	}
 }
 
 func parseConfig() *config.Config {
@@ -84,8 +91,13 @@ func parseConfig() *config.Config {
 	flag.BoolVar(&cfg.CopyForce, "copy-force", false, "force copy data")
 	flag.BoolVar(&cfg.IsJsonTransform, "is-json-transform", true, "transform json data")
 	flag.BoolVar(&cfg.DisableVariantCheck, "disable-variant-check", false, "disable variant check")
+	flag.IntVar(&cfg.MinBytes, "min-bytes", 1024, "min bytes")
+	flag.IntVar(&cfg.MaxBytes, "max-bytes", 20*1024*1024, "max bytes")
+	flag.IntVar(&cfg.MaxWait, "max-wait", 10, "max wait")
+	flag.BoolVar(&cfg.UseReplaceMode, "use-replace-mode", false, "use replace into mode")
 
 	flag.Parse()
+	validateConfig(&cfg)
 	return &cfg
 }
 

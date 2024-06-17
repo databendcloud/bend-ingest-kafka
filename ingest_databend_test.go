@@ -78,12 +78,13 @@ func TestIngestDataIsJsonTransform(t *testing.T) {
 		err = result.Scan(&name, &age, &isMarried)
 		fmt.Println(name, age, isMarried)
 	}
+	assert.NotEqual(t, 0, count)
 }
 
 type recordMetadata struct {
 	CreateTime time.Time `json:"create_time"`
-	Offset     string    `json:"offset"`
-	Partition  string    `json:"partition"`
+	Offset     int64     `json:"offset"`
+	Partition  int32     `json:"partition"`
 	Key        string    `json:"key"`
 	Topic      string    `json:"topic"`
 }
@@ -138,5 +139,67 @@ func TestIngestDataWithoutJsonTransform(t *testing.T) {
 	err = json.Unmarshal([]byte(record_metadata), res)
 	fmt.Println(*res)
 	assert.NoError(t, err)
-	assert.Equal(t, fmt.Sprintf("%d", messageData.DataOffset), res.Offset)
+	assert.Equal(t, messageData.DataOffset, res.Offset)
+}
+
+func TestIngestWithReplaceMode(t *testing.T) {
+	tt := prepareIngestDatabendTest()
+	tableName := "default.test_ingest_replace"
+	cfg := config.Config{
+		KafkaBootstrapServers: "127.0.0.1:9002",
+		KafkaTopic:            "test",
+		KafkaConsumerGroup:    "test",
+		DatabendDSN:           tt.databendDSN,
+		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
+		DataFormat:       "json",
+		IsJsonTransform:  false,
+		DatabendTable:    tableName,
+		BatchSize:        10,
+		BatchMaxInterval: 10,
+		UseReplaceMode:   true,
+	}
+	db, err := sql.Open("databend", cfg.DatabendDSN)
+	assert.NoError(t, err)
+	err = execute(db, fmt.Sprintf("create or replace table %s (uuid String, koffset bigint, kpartition int, raw_data JSON, record_metadata JSON, add_time timestamp);", tableName))
+	assert.NoError(t, err)
+	defer execute(db, fmt.Sprintf("drop table if exists %s;", tableName))
+
+	testData := []string{"{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}", "{\"name\": \"Alice\",\"age\": 30,\"isMarried\": true}"}
+	messageData := message.MessageData{
+		Data:       testData[0],
+		DataOffset: 1,
+		Partition:  1,
+		Key:        "1",
+		CreateTime: time.Now(),
+	}
+	messagesBatch := &message.MessagesBatch{Messages: []message.MessageData{messageData}}
+	ig := NewDatabendIngester(&cfg)
+	err = ig.IngestParquetData(messagesBatch)
+	assert.NoError(t, err)
+	// double replace into, but only on record inserted
+	err = ig.IngestParquetData(messagesBatch)
+	assert.NoError(t, err)
+
+	// check the data
+	result, err := db.Query(fmt.Sprintf("select * from %s", tableName))
+	assert.NoError(t, err)
+	count := 0
+	var uuid string
+	var koffset int64
+	var kpartition int
+	var raw_data string
+	var record_metadata string
+	var add_time string
+	for result.Next() {
+		count += 1
+		err = result.Scan(&uuid, &koffset, &kpartition, &raw_data, &record_metadata, &add_time)
+		fmt.Println(uuid, koffset, kpartition, raw_data, record_metadata, add_time)
+	}
+	assert.Equal(t, 1, count)
+	res := &recordMetadata{}
+	err = json.Unmarshal([]byte(record_metadata), res)
+	fmt.Println(*res)
+	assert.NoError(t, err)
+	assert.Equal(t, messageData.DataOffset, res.Offset)
+
 }

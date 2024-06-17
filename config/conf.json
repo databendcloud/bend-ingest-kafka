@@ -3,7 +3,7 @@
   "kafkaTopic": "ingest_test",
   "KafkaConsumerGroup": "test",
   "mockData": "",
-  "isJsonTransform": true,
+  "isJsonTransform": false,
   "databendDSN": "https://cloudapp:password@tn3ftqihs--medium-p8at.gw.aws-us-east-2.default.databend.com:443",
   "databendTable": "default.kfk_test",
   "batchSize": 10,
@@ -15,5 +15,6 @@
   "disableVariantCheck": true,
   "minBytes": 1024,
   "maxBytes": 1048576,
-  "maxWait": 10
+  "maxWait": 10,
+  "useReplaceMode": false
 }
