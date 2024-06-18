@@ -44,7 +44,8 @@ type Config struct {
 
 	// UseReplaceMode determines whether to use the REPLACE INTO statement to insert data.
 	// replace into will upsert data
-	UseReplaceMode bool `json:"useReplaceMode" default:"false"`
+	UseReplaceMode bool   `json:"useReplaceMode" default:"false"`
+	UserStage      string `json:"userStage" default:"~"`
 }
 
 func LoadConfig() (*Config, error) {

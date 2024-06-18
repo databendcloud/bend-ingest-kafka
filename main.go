@@ -95,6 +95,7 @@ func parseConfig() *config.Config {
 	flag.IntVar(&cfg.MaxBytes, "max-bytes", 20*1024*1024, "max bytes")
 	flag.IntVar(&cfg.MaxWait, "max-wait", 10, "max wait")
 	flag.BoolVar(&cfg.UseReplaceMode, "use-replace-mode", false, "use replace into mode")
+	flag.StringVar(&cfg.UserStage, "user-stage", "~", "user stage")
 
 	flag.Parse()
 	validateConfig(&cfg)

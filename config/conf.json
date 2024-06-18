@@ -16,5 +16,6 @@
   "minBytes": 1024,
   "maxBytes": 1048576,
   "maxWait": 10,
-  "useReplaceMode": false
+  "useReplaceMode": false,
+  "userStage": "~"
 }

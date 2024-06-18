@@ -297,7 +297,7 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 	defer f.Close()
 	input := bufio.NewReader(f)
 	stage := &godatabend.StageLocation{
-		Name: "~",
+		Name: ig.databendIngesterCfg.UserStage,
 		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(fileName)),
 	}
 
