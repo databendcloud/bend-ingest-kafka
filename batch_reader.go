@@ -139,6 +139,7 @@ _loop:
 			if firstMessageOffset == 0 {
 				firstMessageOffset = m.Offset
 			}
+			lastMessageOffset = m.Offset
 
 			data := string(m.Value)
 			data = strings.ReplaceAll(data, "\t", "")
@@ -167,7 +168,6 @@ _loop:
 					l.Errorf("Failed to commit message at partition %d, offset %d: %v", partition, ms.Offset, err)
 					return err
 				}
-				lastMessageOffset = ms.Offset
 			}
 			return nil
 		}
