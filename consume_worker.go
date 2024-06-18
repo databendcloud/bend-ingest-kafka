@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -56,9 +57,13 @@ func (c *ConsumeWorker) stepBatch() error {
 			return err
 		}
 	} else {
-		if err := c.ig.IngestData(batch); err != nil {
+		err := DoRetry(
+			func() error {
+				return c.ig.IngestData(batch)
+			})
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
-			l.Errorf("Failed to ingest data between %d-%d into Databend: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+			l.Errorf("Failed to ingest data between %d-%d into Databend: %v after retry 5 attempts\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
 		}
 	}
@@ -97,4 +102,23 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 			c.stepBatch()
 		}
 	}
+}
+
+func DoRetry(f retry.RetryableFunc) error {
+	delay := time.Second
+	var attempts uint = 5
+	return retry.Do(
+		func() error {
+			return f()
+		},
+		retry.RetryIf(func(err error) bool {
+			if err != nil {
+				return true
+			}
+			return false
+		}),
+		retry.Delay(delay),
+		retry.Attempts(attempts),
+		retry.DelayType(retry.BackOffDelay),
+	)
 }

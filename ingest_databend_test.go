@@ -47,6 +47,7 @@ func TestIngestDataIsJsonTransform(t *testing.T) {
 		DatabendTable:    "test_ingest",
 		BatchSize:        10,
 		BatchMaxInterval: 10,
+		UserStage:        "~",
 	}
 	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)
@@ -102,6 +103,7 @@ func TestIngestDataWithoutJsonTransform(t *testing.T) {
 		DatabendTable:    "default.test_ingest_without",
 		BatchSize:        10,
 		BatchMaxInterval: 10,
+		UserStage:        "~",
 	}
 	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)
@@ -157,6 +159,7 @@ func TestIngestWithReplaceMode(t *testing.T) {
 		BatchSize:        10,
 		BatchMaxInterval: 10,
 		UseReplaceMode:   true,
+		UserStage:        "~",
 	}
 	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)

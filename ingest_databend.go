@@ -145,7 +145,7 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 }
 
 func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) error {
-	l := logrus.WithFields(logrus.Fields{"ingest_databend": "IngestData"})
+	l := logrus.WithFields(logrus.Fields{"ingest_databend": "IngestData", "lastOffset": messageBatch.LastMessageOffset})
 	startTime := time.Now()
 	if messageBatch == nil {
 		return nil
@@ -162,26 +162,26 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 		var err error
 		batchJsonData, err = ig.reWriteTheJsonData(messageBatch)
 		if err != nil {
-			l.Errorf("re-write the json data failed: %v", err)
+			l.Errorf("re-write the json data failed: %v, lastOffset is: %d\n", err, messageBatch.LastMessageOffset)
 			return err
 		}
 	}
 
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
-		l.Errorf("generate NDJson file failed: %v", err)
+		l.Errorf("generate NDJson file failed: %v,lastOffset is %d\n", err, messageBatch.LastMessageOffset)
 		return err
 	}
 
 	stage, err := ig.uploadToStage(fileName)
 	if err != nil {
-		l.Errorf("upload to stage failed: %v", err)
+		l.Errorf("upload to stage failed: %v, lastOffset is: %d\n", err, messageBatch.LastMessageOffset)
 		return err
 	}
 
 	err = ig.copyInto(stage)
 	if err != nil {
-		l.Errorf("copy into failed: %v", err)
+		l.Errorf("copy into failed: %v, lastOffset is: %d\n", err, messageBatch.LastMessageOffset)
 		return err
 	}
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
@@ -297,7 +297,7 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 	defer f.Close()
 	input := bufio.NewReader(f)
 	stage := &godatabend.StageLocation{
-		Name: "~",
+		Name: ig.databendIngesterCfg.UserStage,
 		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(fileName)),
 	}
 
