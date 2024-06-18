@@ -51,8 +51,11 @@ func (c *ConsumeWorker) stepBatch() error {
 
 	l.Debug("DEBUG: ingest data")
 	if c.cfg.UseReplaceMode && !c.cfg.IsJsonTransform {
-		if err := c.ig.IngestParquetData(batch); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+		err := DoRetry(
+			func() error {
+				return c.ig.IngestParquetData(batch)
+			})
+		if err != nil {
 			l.Errorf("Failed to ingest data between %d-%d into Databend: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
 		}
@@ -62,7 +65,6 @@ func (c *ConsumeWorker) stepBatch() error {
 				return c.ig.IngestData(batch)
 			})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to ingest data between %d-%d into Databend: %v\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			l.Errorf("Failed to ingest data between %d-%d into Databend: %v after retry 5 attempts\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
 		}
@@ -82,7 +84,6 @@ func (c *ConsumeWorker) stepBatch() error {
 				fmt.Printf("Stack trace: %s\n", debug.Stack())
 				continue
 			}
-			fmt.Fprintf(os.Stderr, "Failed to commit messages at %d: %v\n", batch.LastMessageOffset, err)
 			l.Errorf("Failed to commit messages at %d: %v", batch.LastMessageOffset, err)
 			return err
 		}
@@ -106,19 +107,16 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 
 func DoRetry(f retry.RetryableFunc) error {
 	delay := time.Second
-	var attempts uint = 5
+	maxDelay := 15 * time.Minute
 	return retry.Do(
 		func() error {
 			return f()
 		},
 		retry.RetryIf(func(err error) bool {
-			if err != nil {
-				return true
-			}
-			return false
+			return err != nil
 		}),
 		retry.Delay(delay),
-		retry.Attempts(attempts),
+		retry.MaxDelay(maxDelay),
 		retry.DelayType(retry.BackOffDelay),
 	)
 }
