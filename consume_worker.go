@@ -107,7 +107,7 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 
 func DoRetry(f retry.RetryableFunc) error {
 	delay := time.Second
-	maxDelay := 15 * time.Minute
+	maxDelay := 30 * time.Minute
 	return retry.Do(
 		func() error {
 			return f()
