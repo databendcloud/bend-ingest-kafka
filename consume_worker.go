@@ -72,22 +72,20 @@ func (c *ConsumeWorker) stepBatch() error {
 	}
 
 	l.Debug("DEBUG: commit")
-	maxRetries := 5
+	// guarantee the commit is successful before moving to the next batch
+	maxRetries := 500
 	retryInterval := time.Second
 	for i := 0; i < maxRetries; i++ {
 		ctx := context.Background()
 		err = batch.CommitFunc(ctx)
 		if err != nil {
-			if err == context.Canceled {
-				l.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
-				time.Sleep(retryInterval)
-				retryInterval <<= 1
-				fmt.Printf("Stack trace: %s\n", debug.Stack())
-				continue
-			}
-			l.Errorf("Failed to commit messages at %d: %v", batch.LastMessageOffset, err)
-			return err
+			l.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
+			time.Sleep(retryInterval)
+			retryInterval <<= 1
+			fmt.Printf("Stack trace: %s\n", debug.Stack())
+			continue
 		}
+		return nil
 	}
 	return nil
 }
