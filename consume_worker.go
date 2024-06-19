@@ -85,6 +85,9 @@ func (c *ConsumeWorker) stepBatch() error {
 			fmt.Printf("Stack trace: %s\n", debug.Stack())
 			continue
 		}
+		if i == 500 {
+			panic("Failed to commit messages after 500 attempts, need panic")
+		}
 		return nil
 	}
 	return nil
