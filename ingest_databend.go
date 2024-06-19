@@ -24,6 +24,11 @@ import (
 	"github.com/databendcloud/bend-ingest-kafka/message"
 )
 
+var (
+	ErrUploadStageFailed = errors.New("upload stage failed")
+	ErrCopyIntoFailed    = errors.New("copy into failed")
+)
+
 type DatabendIngester interface {
 	IngestData(messageBatch *message.MessagesBatch) error
 	IngestParquetData(messageBatch *message.MessagesBatch) error
@@ -301,7 +306,11 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(fileName)),
 	}
 
-	return stage, apiClient.UploadToStage(context.Background(), stage, input, size)
+	if err := apiClient.UploadToStage(context.Background(), stage, input, size); err != nil {
+		return nil, errors.Wrap(ErrUploadStageFailed, err.Error())
+	}
+
+	return stage, nil
 }
 
 func execute(db *sql.DB, sql string) error {
@@ -322,7 +331,10 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 		logrus.Errorf("create db error: %v", err)
 		return err
 	}
-	return execute(db, copyIntoSQL)
+	if err := execute(db, copyIntoSQL); err != nil {
+		return errors.Wrap(ErrCopyIntoFailed, err.Error())
+	}
+	return nil
 }
 
 func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
