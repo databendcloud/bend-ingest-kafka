@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -113,7 +114,13 @@ func DoRetry(f retry.RetryableFunc) error {
 			return f()
 		},
 		retry.RetryIf(func(err error) bool {
-			return err != nil
+			if err == nil {
+				return false
+			}
+			if errors.Is(err, ErrUploadStageFailed) || errors.Is(err, ErrCopyIntoFailed) {
+				return true
+			}
+			return false
 		}),
 		retry.Delay(delay),
 		retry.MaxDelay(maxDelay),
