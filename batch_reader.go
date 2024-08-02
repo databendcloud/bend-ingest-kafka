@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"runtime/debug"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/sirupsen/logrus"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -69,7 +71,18 @@ type KafkaBatchReader struct {
 }
 
 func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
-	kafkaReader := kafka.NewReader(kafka.ReaderConfig{
+	mechanism := plain.Mechanism{
+		Username: cfg.SaslUser,
+		Password: cfg.SaslPassword,
+	}
+
+	dialer := &kafka.Dialer{
+		Timeout:       300 * time.Second,
+		DualStack:     true,
+		SASLMechanism: mechanism,
+		TLS:           &tls.Config{},
+	}
+	kafkaReaderConfig := kafka.ReaderConfig{
 		Brokers:          parseKafkaServers(cfg.KafkaBootstrapServers),
 		GroupID:          cfg.KafkaConsumerGroup,
 		Topic:            cfg.KafkaTopic,
@@ -77,7 +90,13 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 		MaxBytes:         cfg.MaxBytes,
 		ReadBatchTimeout: 2 * time.Duration(cfg.BatchMaxInterval) * time.Second,
 		MaxWait:          time.Duration(cfg.MaxWait) * time.Second,
-	})
+	}
+
+	if cfg.IsSASL {
+		kafkaReaderConfig.Dialer = dialer
+	}
+
+	kafkaReader := kafka.NewReader(kafkaReaderConfig)
 	return &KafkaBatchReader{
 		batchSize:        cfg.BatchSize,
 		maxBatchInterval: cfg.BatchMaxInterval,

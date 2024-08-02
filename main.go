@@ -68,6 +68,9 @@ func validateConfig(cfg *config.Config) {
 	if cfg.IsJsonTransform && cfg.UseReplaceMode {
 		panic("replace mode can only be used when is-json-transform is false")
 	}
+	if cfg.IsSASL && cfg.SaslUser == "" {
+		panic("sasl user is required when sasl is enabled")
+	}
 }
 
 func parseConfig() *config.Config {
