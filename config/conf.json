@@ -7,7 +7,7 @@
   "saslPassword": "ccp_c731c6250eff4cb7b8ef0a702fc33b050baff3213ae845e0f10b2fb71db7f18a",
   "mockData": "",
   "isJsonTransform": false,
-  "databendDSN": "https://cloudapp:2vssf7jiau3n@tn3ftqihs--medium-p8at.gw.aws-us-east-2.default.databend.com:443",
+  "databendDSN": "https://cloudapp:password@tn3ftqihs--medium-p8at.gw.aws-us-east-2.default.databend.com:443",
   "databendTable": "default.kfk_test",
   "batchSize": 10,
   "batchMaxInterval": 5,
