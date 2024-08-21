@@ -103,6 +103,9 @@ with `config.conf.json` and the table `default.kfk_test` will be created and the
 | kafkaBootstrapServers | kafka bootstrap servers  | "127.0.0.1:64103"   | "127.0.0.1:9092,127.0.0.2:9092" |
 | kafkaTopic            | kafka topic              | "test"              | "test"                          |
 | KafkaConsumerGroup    | kafka consumer group     | "kafka-bend-ingest" | "test"                          |
+|isSASL                 | is sasl                  | false               | true                            |
+|saslUser               | sasl user                | ""                  | "user"                          |
+|saslPassword           | sasl password            | ""                  | "password"                      |
 | mockData              | mock data                | ""                  | ""                              |
 | isJsonTransform       | is json transform        | true                | true                            |
 | databendDSN           | databend dsn             | no                  | "http://localhost:8000"         |
