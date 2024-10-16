@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+
+	"github.com/mcuadros/go-defaults"
 )
 
 type Config struct {
@@ -68,6 +70,7 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal config failed: %v", err)
 	}
+	defaults.SetDefaults(&conf)
 
 	return &conf, nil
 }

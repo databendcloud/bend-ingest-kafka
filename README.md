@@ -61,7 +61,7 @@ Config the config file `config/conf.json`
   "KafkaConsumerGroup": "test",
   "mockData": "",
   "isJsonTransform": true,
-  "databendDSN": "https://cloudapp:password@tn3ftqihs--medium-p8at.gw.aws-us-east-2.default.databend.com:443",
+  "databendDSN": "https://host:port@host:port",
   "databendTable": "default.kfk_test",
   "batchSize": 1,
   "batchMaxInterval": 5,

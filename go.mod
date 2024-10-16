@@ -3,9 +3,11 @@ module github.com/databendcloud/bend-ingest-kafka
 go 1.21
 
 require (
+	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/codesuki/go-time-series v0.0.0-20210430055340-c4c8d8fa61d4
 	github.com/datafuselabs/databend-go v0.6.5
 	github.com/google/uuid v1.3.0
+	github.com/mcuadros/go-defaults v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/segmentio/kafka-go v0.4.39
 	github.com/sirupsen/logrus v1.9.0
@@ -18,7 +20,6 @@ require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
 	github.com/apache/arrow/go/arrow v0.0.0-20200730104253-651201b0f516 // indirect
 	github.com/apache/thrift v0.14.2 // indirect
-	github.com/avast/retry-go v3.0.0+incompatible // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
