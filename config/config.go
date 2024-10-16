@@ -3,7 +3,10 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
+
+	"github.com/mcuadros/go-defaults"
 )
 
 type Config struct {
@@ -59,12 +62,15 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	defer f.Close()
-	decoder := json.NewDecoder(f)
-	err = decoder.Decode(&conf)
+	confByte, err := ioutil.ReadAll(f)
 	if err != nil {
-		fmt.Println("Error decoding JSON:", err)
-		return &conf, err
+		return nil, fmt.Errorf("read config file failed: %v", err)
 	}
+	err = json.Unmarshal(confByte, &conf)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal config failed: %v", err)
+	}
+	defaults.SetDefaults(&conf)
 
 	return &conf, nil
 }
