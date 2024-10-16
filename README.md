@@ -53,7 +53,7 @@ bend-ingest-kafka
 ```
 
 #### config file mode
-Config the config file `confg/conf.json`
+Config the config file `config/conf.json`
 ```json
 {
   "kafkaBootstrapServers": "localhost:9092",
