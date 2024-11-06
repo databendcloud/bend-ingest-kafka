@@ -57,9 +57,10 @@ jobs:
       - name: Post sha256
         uses: actions/upload-artifact@v4
         with:
-          name: sha256sums
+          name: sha256sums-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}
           path: ./_bin/sha256-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}.txt
           retention-days: 1
+
   upload-sha256sums:
     needs: build_and_upload
     runs-on: ubuntu-latest
