@@ -137,7 +137,7 @@ func TestConsumeKafka(t *testing.T) {
 	ig := NewDatabendIngester(cfg)
 	w := NewConsumeWorker(cfg, "worker1", ig)
 	log.Printf("start consume")
-	w.stepBatch()
+	w.stepBatch(context.TODO())
 
 	result, err := db.Query("select * from test_ingest")
 	assert.NoError(t, err)
@@ -194,7 +194,7 @@ func TestConsumerWithoutTransform(t *testing.T) {
 	}
 	w := NewConsumeWorker(cfg, "worker1", ig)
 	log.Printf("start consume")
-	err = w.stepBatch()
+	err = w.stepBatch(context.TODO())
 	assert.NoError(t, err)
 
 	result, err := db.Query("select * from test_ingest_raw")

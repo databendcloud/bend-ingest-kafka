@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"runtime/debug"
 	"time"
@@ -15,18 +16,20 @@ import (
 )
 
 type ConsumeWorker struct {
-	name        string
-	cfg         *config.Config
-	ig          DatabendIngester
-	batchReader BatchReader
+	name          string
+	cfg           *config.Config
+	ig            DatabendIngester
+	batchReader   BatchReader
+	statsRecorder *DatabendConsumeStatsRecorder
 }
 
 func NewConsumeWorker(cfg *config.Config, name string, ig DatabendIngester) *ConsumeWorker {
 	return &ConsumeWorker{
-		name:        name,
-		cfg:         cfg,
-		ig:          ig,
-		batchReader: NewBatchReader(cfg),
+		name:          name,
+		cfg:           cfg,
+		ig:            ig,
+		batchReader:   NewBatchReader(cfg),
+		statsRecorder: NewDatabendConsumeStatsRecorder(),
 	}
 }
 
@@ -35,10 +38,11 @@ func (c *ConsumeWorker) Close() {
 	c.batchReader.Close()
 }
 
-func (c *ConsumeWorker) stepBatch() error {
+func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
+	batchStartTime := time.Now()
 	l := logrus.WithFields(logrus.Fields{"consumer_worker": "stepBatch"})
 	l.Debug("read batch")
-	batch, err := c.batchReader.ReadBatch()
+	batch, err := c.batchReader.ReadBatch(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
 		l.Errorf("Failed to read batch from Kafka: %v", err)
@@ -48,6 +52,10 @@ func (c *ConsumeWorker) stepBatch() error {
 
 	if batch.Empty() {
 		return err
+	}
+	allByteSize := 0
+	for _, m := range batch.Messages {
+		allByteSize += len([]byte(m.Data))
 	}
 
 	l.Debug("DEBUG: ingest data")
@@ -75,6 +83,7 @@ func (c *ConsumeWorker) stepBatch() error {
 	// guarantee the commit is successful before moving to the next batch
 	maxRetries := 500
 	retryInterval := time.Second
+	startCommitTime := time.Now()
 	for i := 0; i < maxRetries; i++ {
 		ctx := context.Background()
 		err = batch.CommitFunc(ctx)
@@ -88,6 +97,12 @@ func (c *ConsumeWorker) stepBatch() error {
 		if i == 500 {
 			panic("Failed to commit messages after 500 attempts, need panic")
 		}
+		endConsumeTime := time.Now()
+		c.statsRecorder.RecordMetric(allByteSize, len(batch.Messages))
+		stats := c.statsRecorder.Stats(time.Since(startCommitTime))
+		log.Printf("consume %d rows (%f rows/s), %d bytes (%f bytes/s) in %d ms", len(batch.Messages), stats.RowsPerSecond, allByteSize, stats.BytesPerSecond, endConsumeTime.Sub(startCommitTime).Milliseconds())
+
+		log.Printf("process %d rows (%f rows/s) in %d ms", len(batch.Messages), float64(len(batch.Messages))/time.Since(batchStartTime).Seconds(), time.Since(batchStartTime).Milliseconds())
 		return nil
 	}
 	return nil
@@ -102,7 +117,7 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 			c.Close()
 			return
 		default:
-			c.stepBatch()
+			c.stepBatch(ctx)
 		}
 	}
 }

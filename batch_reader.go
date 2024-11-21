@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/sirupsen/logrus"
@@ -18,7 +19,7 @@ import (
 )
 
 type BatchReader interface {
-	ReadBatch() (*message.MessagesBatch, error)
+	ReadBatch(ctx context.Context) (*message.MessagesBatch, error)
 
 	Close() error
 }
@@ -47,7 +48,7 @@ func NewMockBatchReader(sampleData message.MessageData, batchSize int) *MockBatc
 	}
 }
 
-func (r *MockBatchReader) ReadBatch() (*message.MessagesBatch, error) {
+func (r *MockBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
 	messages := make([]message.MessageData, 0, r.batchSize)
 	for i := 0; i < r.batchSize; i++ {
 		messages = append(messages, r.sampleData)
@@ -68,6 +69,7 @@ type KafkaBatchReader struct {
 	kafkaReader      *kafka.Reader
 	batchSize        int
 	maxBatchInterval int
+	statsRecorder    *DatabendConsumeStatsRecorder
 }
 
 func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
@@ -101,6 +103,7 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 		batchSize:        cfg.BatchSize,
 		maxBatchInterval: cfg.BatchMaxInterval,
 		kafkaReader:      kafkaReader,
+		statsRecorder:    NewDatabendConsumeStatsRecorder(),
 	}
 }
 
@@ -132,70 +135,95 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 	return &m, err
 }
 
-func (br *KafkaBatchReader) ReadBatch() (*message.MessagesBatch, error) {
+func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
 	l := logrus.WithFields(logrus.Fields{"kafka_batch_reader": "ReadBatch"})
+
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
+	defer cancel()
+
+	batchTimeout := time.NewTimer(time.Duration(br.maxBatchInterval) * time.Second)
+	defer batchTimeout.Stop()
+	startFetchBatchTime := time.Now()
+
 	var (
 		lastMessageOffset  int64
 		firstMessageOffset int64
-		batch              []message.MessageData
-		batchTimeout       = time.NewTimer(time.Duration(br.maxBatchInterval) * time.Second)
+		allByteSize        int
+		batch              = make([]message.MessageData, 0, br.batchSize)
+		allMessages        = make(map[int]*kafka.Message, br.batchSize)
 	)
-	allMessages := make(map[int]*kafka.Message)
-	defer batchTimeout.Stop()
+
+	processMessage := func(m *kafka.Message) message.MessageData {
+		data := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(string(m.Value), "\t", ""), "\n", ""))
+		return message.MessageData{
+			Data:       data,
+			DataOffset: m.Offset,
+			Partition:  m.Partition,
+			Key:        string(m.Key),
+			CreateTime: m.Time,
+		}
+	}
 
 _loop:
 	for {
 		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-batchTimeout.C:
 			break _loop
 		default:
-			ctx := context.Background()
 			m, err := br.fetchMessageWithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
 			if err != nil {
-				l.Warnf("Failed to read message from Kafka: %v", err)
+				if !errors.Is(err, context.DeadlineExceeded) {
+					l.WithError(err).Warn("Failed to read message from Kafka")
+				}
 				continue
 			}
+
 			if firstMessageOffset == 0 {
 				firstMessageOffset = m.Offset
 			}
 			lastMessageOffset = m.Offset
 
-			data := string(m.Value)
-			data = strings.ReplaceAll(data, "\t", "")
-			messageData := message.MessageData{
-				Data:       strings.ReplaceAll(data, "\n", ""),
-				DataOffset: m.Offset,
-				Partition:  m.Partition,
-				Key:        string(m.Key),
-				CreateTime: m.Time,
-			}
-			batch = append(batch, messageData)
+			batch = append(batch, processMessage(m))
+			allByteSize += len(m.Value)
 			allMessages[m.Partition] = m
 
 			if len(batch) >= br.batchSize {
+				logrus.Infof("Fetched %d messages cost %s, batch size: %d, batch byte size: %d", len(batch), time.Since(startFetchBatchTime), br.batchSize, allByteSize)
 				break _loop
 			}
 		}
 	}
 
-	commitFunc := func(_ context.Context) error { return nil }
-	if len(allMessages) != 0 {
-		commitFunc = func(ctx context.Context) error {
-			for partition, ms := range allMessages {
-				err := br.kafkaReader.CommitMessages(ctx, *ms)
-				if err != nil {
-					l.Errorf("Failed to commit message at partition %d, offset %d: %v", partition, ms.Offset, err)
-					return err
-				}
-			}
-			return nil
-		}
-	}
-
 	return &message.MessagesBatch{
 		Messages:           batch,
-		CommitFunc:         commitFunc,
+		CommitFunc:         br.createCommitFunc(allMessages, l),
 		FirstMessageOffset: firstMessageOffset,
 		LastMessageOffset:  lastMessageOffset,
 	}, nil
+}
+
+func (br *KafkaBatchReader) createCommitFunc(messages map[int]*kafka.Message, l *logrus.Entry) func(context.Context) error {
+	if len(messages) == 0 {
+		return func(_ context.Context) error { return nil }
+	}
+
+	return func(ctx context.Context) error {
+		for partition, msg := range messages {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				if err := br.kafkaReader.CommitMessages(ctx, *msg); err != nil {
+					l.WithError(err).WithFields(logrus.Fields{
+						"partition": partition,
+						"offset":    msg.Offset,
+					}).Error("Failed to commit message")
+					return fmt.Errorf("commit message failed: %w", err)
+				}
+			}
+		}
+		return nil
+	}
 }

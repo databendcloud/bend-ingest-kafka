@@ -145,7 +145,7 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
 	stats := ig.statsRecorder.Stats(time.Since(startTime))
-	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond)
 	return nil
 }
 
@@ -191,7 +191,7 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 	}
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
 	stats := ig.statsRecorder.Stats(time.Since(startTime))
-	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecondd, bytesSize, stats.BytesPerSecond)
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond)
 	return nil
 }
 
@@ -277,6 +277,7 @@ func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, 
 }
 
 func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLocation, error) {
+	startTime := time.Now()
 	defer func() {
 		err := os.RemoveAll(fileName)
 		if err != nil {
@@ -310,6 +311,7 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 		return nil, errors.Wrap(ErrUploadStageFailed, err.Error())
 	}
 
+	logrus.Infof("upload to stage %s, cost: %s", stage.String(), time.Since(startTime))
 	return stage, nil
 }
 
@@ -323,6 +325,7 @@ func execute(db *sql.DB, sql string) error {
 }
 
 func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
+	startTime := time.Now()
 	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO) "+
 		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", ig.databendIngesterCfg.DatabendTable, stage.String(),
 		ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce, ig.databendIngesterCfg.DisableVariantCheck)
@@ -334,6 +337,7 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 	if err := execute(db, copyIntoSQL); err != nil {
 		return errors.Wrap(ErrCopyIntoFailed, err.Error())
 	}
+	logrus.Infof("copy into %s, cost: %s", ig.databendIngesterCfg.DatabendTable, time.Since(startTime))
 	return nil
 }
 
