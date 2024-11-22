@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"runtime/debug"
 	"time"
 
@@ -43,10 +42,13 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 	l := logrus.WithFields(logrus.Fields{"consumer_worker": "stepBatch"})
 	l.Debug("read batch")
 	batch, err := c.batchReader.ReadBatch(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to read batch from Kafka: %v\n", err)
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		l.Errorf("Failed to read batch from Kafka: %v", err)
 		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		l.Info("waitting to read batch from Kafka")
+		return nil
 	}
 	l.Debug("got batch")
 

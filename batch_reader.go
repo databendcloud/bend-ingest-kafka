@@ -175,7 +175,7 @@ _loop:
 			m, err := br.fetchMessageWithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
 			if err != nil {
 				if !errors.Is(err, context.DeadlineExceeded) {
-					l.WithError(err).Warn("Failed to read message from Kafka")
+					l.WithError(err).Warn("Failed to read message from Kafka##")
 				}
 				continue
 			}

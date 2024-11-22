@@ -191,7 +191,7 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 	}
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
 	stats := ig.statsRecorder.Stats(time.Since(startTime))
-	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s)", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond)
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s) in %s", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond, time.Since(startTime))
 	return nil
 }
 
