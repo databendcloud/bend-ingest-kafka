@@ -17,7 +17,7 @@ type Config struct {
 	SaslPassword          string `json:"saslPassword"`
 	KafkaConsumerGroup    string `json:"KafkaConsumerGroup" default:"test-group"`
 	MockData              string `json:"mockData"`
-	IsJsonTransform       bool   `json:"isJsonTransform" default:"true"`
+	IsJsonTransform       bool   `json:"isJsonTransform"`
 	DatabendDSN           string `json:"databendDSN" default:"localhost:8000"`
 	DatabendTable         string `json:"databendTable"`
 	BatchSize             int    `json:"batchSize" default:"1000"`

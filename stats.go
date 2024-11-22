@@ -15,7 +15,7 @@ type DatabendIngesterStatsRecorder struct {
 
 type DatabendIngesterStatsData struct {
 	BytesPerSecond float64
-	RowsPerSecondd float64
+	RowsPerSecond  float64
 }
 
 func NewDatabendIntesterStatsRecorder() *DatabendIngesterStatsRecorder {
@@ -48,7 +48,7 @@ func (stats *DatabendIngesterStatsRecorder) Stats(statsWindow time.Duration) Dat
 	rowsPerSecond := stats.calcPerSecond(stats.ingestedRows, statsWindow)
 	return DatabendIngesterStatsData{
 		BytesPerSecond: bytesPerSecond,
-		RowsPerSecondd: rowsPerSecond,
+		RowsPerSecond:  rowsPerSecond,
 	}
 }
 
