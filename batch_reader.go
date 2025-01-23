@@ -118,8 +118,8 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 	retryInterval := time.Second
 	for i := 0; i < maxRetries; i++ {
 		ctx, cancel := context.WithTimeout(ctx, 2*timeout)
+		defer cancel()
 		m, err = br.kafkaReader.FetchMessage(ctx)
-		cancel()
 		if err != nil {
 			if ctx.Err() == context.Canceled {
 				logrus.Errorf("Failed to fetch message, attempt %d: %v", i+1, err)
@@ -138,19 +138,17 @@ func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout
 func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
 	l := logrus.WithFields(logrus.Fields{"kafka_batch_reader": "ReadBatch"})
 
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
-	defer cancel()
-
-	batchTimeout := time.NewTimer(time.Duration(br.maxBatchInterval) * time.Second)
-	defer batchTimeout.Stop()
 	startFetchBatchTime := time.Now()
-
 	var (
-		lastMessageOffset  int64
-		firstMessageOffset int64
+		lastMessageOffset  int64 = -1
+		firstMessageOffset int64 = -1
 		allByteSize        int
 		batch              = make([]message.MessageData, 0, br.batchSize)
 		allMessages        = make(map[int]*kafka.Message, br.batchSize)
+		lastMessageTime    = time.Now()
+		noMessageCount     = 0
+		maxEmptyAttempts   = 3
+		maxMessageInterval = 2 * time.Second
 	)
 
 	processMessage := func(m *kafka.Message) message.MessageData {
@@ -164,36 +162,94 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 		}
 	}
 
-_loop:
+	batchDeadline := time.Now().Add(time.Duration(br.maxBatchInterval) * time.Second)
+
 	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-batchTimeout.C:
-			break _loop
-		default:
-			m, err := br.fetchMessageWithTimeout(ctx, time.Duration(br.maxBatchInterval)*time.Second)
-			if err != nil {
-				if !errors.Is(err, context.DeadlineExceeded) {
-					l.WithError(err).Warn("Failed to read message from Kafka##")
+		// check if batch timeout reached and batch is not empty
+		if time.Now().After(batchDeadline) && len(batch) > 0 {
+			l.Infof("Batch timeout reached with %d messages", len(batch))
+			break
+		}
+
+		// check if message interval exceeded and batch is not empty
+		if len(batch) > 0 && time.Since(lastMessageTime) > maxMessageInterval {
+			l.Infof("Message interval exceeded %v, ending batch with %d messages",
+				maxMessageInterval, len(batch))
+			break
+		}
+
+		// set timeout based on batch size
+		timeout := time.Duration(br.maxBatchInterval) * time.Second
+		if len(batch) > 0 {
+			// use maxMessageInterval as timeout if batch is not empty
+			timeout = maxMessageInterval
+		}
+
+		fetchCtx, cancel := context.WithTimeout(ctx, timeout)
+		m, err := br.kafkaReader.FetchMessage(fetchCtx)
+		cancel()
+
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				if len(batch) > 0 {
+					noMessageCount++
+					if noMessageCount >= maxEmptyAttempts {
+						l.Infof("No new messages after %d attempts, returning current batch",
+							maxEmptyAttempts)
+						break
+					}
 				}
 				continue
 			}
 
-			if firstMessageOffset == 0 {
-				firstMessageOffset = m.Offset
+			if len(batch) > 0 {
+				l.WithError(err).Warn("Error fetching message, processing current batch")
+				break
 			}
-			lastMessageOffset = m.Offset
 
-			batch = append(batch, processMessage(m))
-			allByteSize += len(m.Value)
-			allMessages[m.Partition] = m
-
-			if len(batch) >= br.batchSize {
-				logrus.Infof("Fetched %d messages cost %s, batch size: %d, batch byte size: %d", len(batch), time.Since(startFetchBatchTime), br.batchSize, allByteSize)
-				break _loop
-			}
+			l.WithError(err).Error("Failed to fetch message with empty batch")
+			return nil, err
 		}
+
+		// fetch message successfully, reset no message count
+		noMessageCount = 0
+		lastMessageTime = time.Now()
+
+		if firstMessageOffset == -1 {
+			firstMessageOffset = m.Offset
+		}
+		lastMessageOffset = m.Offset
+
+		batch = append(batch, processMessage(&m))
+		allByteSize += len(m.Value)
+		allMessages[m.Partition] = &m
+
+		if len(batch) >= br.batchSize {
+			l.Infof("Batch full with %d messages in %v", len(batch),
+				time.Since(startFetchBatchTime))
+			break
+		}
+	}
+
+	// record metrics
+	batchDuration := time.Since(startFetchBatchTime)
+	l.WithFields(logrus.Fields{
+		"batch_size":         len(batch),
+		"bytes_size":         allByteSize,
+		"first_offset":       firstMessageOffset,
+		"last_offset":        lastMessageOffset,
+		"duration_ms":        batchDuration.Milliseconds(),
+		"messages_per_ms":    float64(len(batch)) / float64(batchDuration.Milliseconds()),
+		"last_message_delay": time.Since(lastMessageTime).Milliseconds(),
+	}).Info("Batch complete")
+
+	if len(batch) == 0 {
+		return &message.MessagesBatch{
+			Messages:           batch,
+			FirstMessageOffset: -1,
+			LastMessageOffset:  -1,
+			CommitFunc:         func(context.Context) error { return nil },
+		}, nil
 	}
 
 	return &message.MessagesBatch{
