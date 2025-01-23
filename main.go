@@ -26,6 +26,8 @@ var (
 )
 
 func main() {
+	configFile := flag.String("f", "./config/conf.json", "Path to the configuration file")
+	flag.Parse()
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		sigch := make(chan os.Signal, 1)
@@ -34,7 +36,7 @@ func main() {
 		cancel()
 	}()
 
-	cfg := parseConfig()
+	cfg := parseConfig(configFile)
 	ig := NewDatabendIngester(cfg)
 	if !cfg.IsJsonTransform {
 		err := ig.CreateRawTargetTable()
@@ -55,8 +57,8 @@ func main() {
 	wg.Wait()
 }
 
-func parseConfigWithFile() *config.Config {
-	cfg, err := config.LoadConfig()
+func parseConfigWithFile(configFile *string) *config.Config {
+	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		panic(err)
 	}
@@ -73,10 +75,12 @@ func validateConfig(cfg *config.Config) {
 	}
 }
 
-func parseConfig() *config.Config {
-	// if config/conf.json exists, use it
-	if _, err := os.Stat("config/conf.json"); err == nil {
-		return parseConfigWithFile()
+func parseConfig(configFile *string) *config.Config {
+	if *configFile == "" {
+		*configFile = "config/conf.json"
+	}
+	if _, err := os.Stat(*configFile); err == nil {
+		return parseConfigWithFile(configFile)
 	}
 
 	cfg := config.Config{}

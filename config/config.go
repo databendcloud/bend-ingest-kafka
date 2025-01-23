@@ -54,7 +54,7 @@ type Config struct {
 	UserStage      string `json:"userStage" default:"~"`
 }
 
-func LoadConfig() (*Config, error) {
+func LoadConfig(configFile *string) (*Config, error) {
 	conf := Config{}
 
 	f, err := os.Open("config/conf.json")
