@@ -352,6 +352,7 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 		return err
 	}
 	defer db.Close()
+
 	defer func() {
 		if ig.databendIngesterCfg.CopyPurge {
 			err := execute(db, fmt.Sprintf("REMOVE  %s", stage.String()))
@@ -377,5 +378,6 @@ func (ig *databendIngester) CreateRawTargetTable() error {
 		return err
 	}
 	defer db.Close()
+
 	return execute(db, createTableSQL)
 }
