@@ -38,6 +38,8 @@ func main() {
 
 	cfg := parseConfig(configFile)
 	ig := NewDatabendIngester(cfg)
+	defer ig.Close()
+
 	if !cfg.IsJsonTransform {
 		err := ig.CreateRawTargetTable()
 		if err != nil {
