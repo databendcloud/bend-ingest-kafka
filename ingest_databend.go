@@ -334,6 +334,8 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 		logrus.Errorf("create db error: %v", err)
 		return err
 	}
+	defer db.Close()
+
 	if err := execute(db, copyIntoSQL); err != nil {
 		return errors.Wrap(ErrCopyIntoFailed, err.Error())
 	}
@@ -349,6 +351,7 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 		logrus.Errorf("create db error: %v", err)
 		return err
 	}
+	defer db.Close()
 	defer func() {
 		if ig.databendIngesterCfg.CopyPurge {
 			err := execute(db, fmt.Sprintf("REMOVE  %s", stage.String()))
@@ -373,5 +376,6 @@ func (ig *databendIngester) CreateRawTargetTable() error {
 		logrus.Errorf("create db error: %v", err)
 		return err
 	}
+	defer db.Close()
 	return execute(db, createTableSQL)
 }
