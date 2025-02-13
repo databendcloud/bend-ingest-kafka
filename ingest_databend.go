@@ -33,19 +33,33 @@ type DatabendIngester interface {
 	IngestData(messageBatch *message.MessagesBatch) error
 	IngestParquetData(messageBatch *message.MessagesBatch) error
 	CreateRawTargetTable() error
+	Close() error
 }
 
 type databendIngester struct {
 	databendIngesterCfg *config.Config
 	statsRecorder       *DatabendIngesterStatsRecorder
+	db                  *sql.DB
 }
 
 func NewDatabendIngester(cfg *config.Config) DatabendIngester {
 	stats := NewDatabendIntesterStatsRecorder()
+	db, err := sql.Open("databend", cfg.DatabendDSN)
+	if err != nil {
+		log.Fatalf("open databend failed: %v", err)
+	}
 	return &databendIngester{
 		databendIngesterCfg: cfg,
 		statsRecorder:       stats,
+		db:                  db,
 	}
+}
+
+func (ig *databendIngester) Close() error {
+	if ig.db != nil {
+		return ig.db.Close()
+	}
+	return nil
 }
 
 func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBatch) ([]string, error) {
@@ -329,14 +343,8 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO) "+
 		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", ig.databendIngesterCfg.DatabendTable, stage.String(),
 		ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce, ig.databendIngesterCfg.DisableVariantCheck)
-	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
-	if err != nil {
-		logrus.Errorf("create db error: %v", err)
-		return err
-	}
-	defer db.Close()
 
-	if err := execute(db, copyIntoSQL); err != nil {
+	if err := execute(ig.db, copyIntoSQL); err != nil {
 		return errors.Wrap(ErrCopyIntoFailed, err.Error())
 	}
 	logrus.Infof("copy into %s, cost: %s", ig.databendIngesterCfg.DatabendTable, time.Since(startTime))
@@ -346,22 +354,16 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 	replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s ON (%s,%s) SELECT * FROM %s  (FILE_FORMAT => 'parquet')",
 		ig.databendIngesterCfg.DatabendTable, "koffset", "kpartition", stage.String())
-	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
-	if err != nil {
-		logrus.Errorf("create db error: %v", err)
-		return err
-	}
-	defer db.Close()
 
 	defer func() {
 		if ig.databendIngesterCfg.CopyPurge {
-			err := execute(db, fmt.Sprintf("REMOVE  %s", stage.String()))
+			err := execute(ig.db, fmt.Sprintf("REMOVE  %s", stage.String()))
 			if err != nil {
 				logrus.Errorf("remove stage file :%s failed: %v", stage.String(), err)
 			}
 		}
 	}()
-	err = execute(db, replaceIntoSQL)
+	err := execute(ig.db, replaceIntoSQL)
 	if err != nil {
 		logrus.Errorf("replace into failed: %v", err)
 		return err
@@ -372,12 +374,6 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 func (ig *databendIngester) CreateRawTargetTable() error {
 	// offset and partition is the key word of databend, so we need to use koffset and kpartition instead
 	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, koffset BIGINT, kpartition int, raw_data json, record_metadata json, add_time timestamp)", ig.databendIngesterCfg.DatabendTable)
-	db, err := sql.Open("databend", ig.databendIngesterCfg.DatabendDSN)
-	if err != nil {
-		logrus.Errorf("create db error: %v", err)
-		return err
-	}
-	defer db.Close()
 
-	return execute(db, createTableSQL)
+	return execute(ig.db, createTableSQL)
 }
