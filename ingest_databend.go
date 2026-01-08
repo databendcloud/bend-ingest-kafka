@@ -2,14 +2,17 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -44,11 +47,12 @@ type databendIngester struct {
 }
 
 type kafkaRecordMetadata struct {
-	Topic      string `json:"topic"`
-	Partition  int    `json:"partition"`
-	Offset     int64  `json:"offset"`
-	Key        string `json:"key"`
-	CreateTime string `json:"create_time"`
+	Topic       string `json:"topic"`
+	Partition   int    `json:"partition"`
+	Offset      int64  `json:"offset"`
+	Key         string `json:"key"`
+	KeyEncoding string `json:"key_encoding,omitempty"`
+	CreateTime  string `json:"create_time"`
 }
 
 type ndjsonRecord struct {
@@ -80,25 +84,84 @@ func (ig *databendIngester) Close() error {
 	return nil
 }
 
-// sanitizeUTF8 removes invalid UTF-8 sequences from a string
+// sanitizeUTF8 removes or replaces invalid UTF-8 sequences from a string
 func sanitizeUTF8(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
-	// Convert to valid UTF-8 by replacing invalid sequences
-	v := make([]rune, 0, len(s))
-	for i, r := range s {
-		if r == utf8.RuneError {
-			// Check if this is actually a decoding error
-			_, size := utf8.DecodeRuneInString(s[i:])
-			if size == 1 {
-				// This is an invalid UTF-8 sequence, skip it
-				continue
-			}
+
+	// Method 1: Use strings.ToValidUTF8 to replace invalid sequences with empty string
+	// This is the most reliable approach using Go standard library
+	var b strings.Builder
+	b.Grow(len(s))
+
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			// Invalid UTF-8 byte, skip it
+			s = s[1:]
+			continue
 		}
-		v = append(v, r)
+		b.WriteRune(r)
+		s = s[size:]
 	}
-	return string(v)
+
+	return b.String()
+}
+
+func sanitizeKafkaKey(key string) (string, string) {
+	if key == "" {
+		return "", ""
+	}
+	if utf8.ValidString(key) {
+		return key, ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(key)), "base64"
+}
+
+func prepareRawData(data string, offset int64) (json.RawMessage, error) {
+	payload := data
+	if !utf8.ValidString(payload) {
+		payload = sanitizeUTF8(payload)
+	}
+
+	raw := bytes.TrimSpace([]byte(payload))
+	if len(raw) == 0 {
+		return json.RawMessage([]byte("null")), nil
+	}
+
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("invalid json payload at offset %d", offset)
+	}
+
+	copied := make([]byte, len(raw))
+	copy(copied, raw)
+	return json.RawMessage(copied), nil
+}
+
+func (ig *databendIngester) buildNDJSONRecord(msg message.MessageData) (*ndjsonRecord, error) {
+	rawData, err := prepareRawData(msg.Data, msg.DataOffset)
+	if err != nil {
+		return nil, err
+	}
+	keyValue, encoding := sanitizeKafkaKey(msg.Key)
+
+	record := &ndjsonRecord{
+		UUID:       uuid.New().String(),
+		Koffset:    msg.DataOffset,
+		Kpartition: msg.Partition,
+		RecordMetadata: kafkaRecordMetadata{
+			Topic:       ig.databendIngesterCfg.KafkaTopic,
+			Partition:   msg.Partition,
+			Offset:      msg.DataOffset,
+			Key:         keyValue,
+			KeyEncoding: encoding,
+			CreateTime:  msg.CreateTime.Format(time.RFC3339Nano),
+		},
+		AddTime: time.Now().Format(time.RFC3339Nano),
+		RawData: rawData,
+	}
+	return record, nil
 }
 
 func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBatch) ([]string, error) {
@@ -106,29 +169,11 @@ func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBa
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 
 	for i := 0; i < len(batchJsonData); i++ {
-		// Sanitize the raw data to ensure valid UTF-8
-		sanitizedData := sanitizeUTF8(batchJsonData[i].Data)
-
-		// Create record metadata struct for proper JSON marshaling
-		recordMetadata := kafkaRecordMetadata{
-			Topic:      ig.databendIngesterCfg.KafkaTopic,
-			Partition:  batchJsonData[i].Partition,
-			Offset:     batchJsonData[i].DataOffset,
-			Key:        batchJsonData[i].Key,
-			CreateTime: batchJsonData[i].CreateTime.Format(time.RFC3339Nano),
+		record, err := ig.buildNDJSONRecord(batchJsonData[i])
+		if err != nil {
+			return nil, err
 		}
 
-		// Use json.RawMessage for raw_data to avoid double encoding
-		record := ndjsonRecord{
-			UUID:           uuid.New().String(),
-			Koffset:        batchJsonData[i].DataOffset,
-			Kpartition:     batchJsonData[i].Partition,
-			RecordMetadata: recordMetadata,
-			AddTime:        time.Now().Format(time.RFC3339Nano),
-			RawData:        json.RawMessage(sanitizedData),
-		}
-
-		// Marshal the entire record to ensure proper JSON encoding
 		jsonData, err := json.Marshal(record)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal record: %w", err)
@@ -144,35 +189,25 @@ func (ig *databendIngester) reWriteParquetJsonData(messagesBatch *message.Messag
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 
 	for i := 0; i < len(batchJsonData); i++ {
-		// Sanitize the raw data to ensure valid UTF-8
-		sanitizedData := sanitizeUTF8(batchJsonData[i].Data)
-
-		// Create record metadata struct for proper JSON marshaling
-		recordMetadata := kafkaRecordMetadata{
-			Topic:      ig.databendIngesterCfg.KafkaTopic,
-			Partition:  batchJsonData[i].Partition,
-			Offset:     batchJsonData[i].DataOffset,
-			Key:        batchJsonData[i].Key,
-			CreateTime: batchJsonData[i].CreateTime.Format(time.RFC3339Nano),
+		record, err := ig.buildNDJSONRecord(batchJsonData[i])
+		if err != nil {
+			return nil, err
 		}
 
-		// Marshal record metadata to JSON string (required for Parquet format)
-		recordMetadataJSON, err := json.Marshal(recordMetadata)
+		metadataJSON, err := json.Marshal(record.RecordMetadata)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal record metadata: %w", err)
 		}
 
-		// Create a map for the parquet record (all fields must be strings for RecordForParquet)
-		parquetRecord := map[string]interface{}{
-			"uuid":            uuid.New().String(),
-			"koffset":         batchJsonData[i].DataOffset,
-			"kpartition":      batchJsonData[i].Partition,
-			"record_metadata": string(recordMetadataJSON),
-			"add_time":        time.Now().Format(time.RFC3339Nano),
-			"raw_data":        sanitizedData,
+		parquetRecord := message.RecordForParquet{
+			UUID:           record.UUID,
+			KOffset:        record.Koffset,
+			KPartition:     int32(record.Kpartition),
+			RecordMetadata: string(metadataJSON),
+			AddTime:        record.AddTime,
+			RawData:        string(record.RawData),
 		}
 
-		// Marshal the entire record to ensure proper JSON encoding
 		jsonData, err := json.Marshal(parquetRecord)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal parquet record: %w", err)
