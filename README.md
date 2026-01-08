@@ -122,6 +122,7 @@ with `config.conf.json` and the table `default.kfk_test` will be created and the
 | MaxWait               | max wait                 | 10                  | 10                              |
 | useReplaceMode       | use replace mode         | false               | false                           |
 | userStage             | user external stage name | ~                   | ~                               |
+| maxRetryDelay         | max retry delay (seconds)| 1800                | 1800                            |
 
 **NOTE:**
 - The `useReplaceMode` is used to replace the data in the table, if the data already exists in the table, the new data will replace the old data. But the `useReplaceMode` is only supported when `isJsonTransform` false because it needs to add `koffset` and `kpartition` field in the target table.
