@@ -21,14 +21,15 @@ jobs:
           - 8000:8000
           - 9000:9000
       # https://github.com/bitnami/containers/issues/4315#issuecomment-1545589060
+      # Note: bitnami/zookeeper:3.8 was moved to bitnamilegacy repository
       zookeeper:
-        image: docker.io/bitnami/zookeeper:3.8
+        image: docker.io/bitnami/zookeeper:latest
         ports:
           - 2181:2181
         env:
           ALLOW_ANONYMOUS_LOGIN: yes
       kafka:
-        image: bitnami/kafka:3.2
+        image: bitnami/kafka:latest
         ports:
           - 9092:9092
         options: >-
