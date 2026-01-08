@@ -52,6 +52,12 @@ type Config struct {
 	// replace into will upsert data
 	UseReplaceMode bool   `json:"useReplaceMode" default:"false"`
 	UserStage      string `json:"userStage" default:"~"`
+
+	// MaxRetryDelay indicates the maximum delay between retries when ingesting data fails.
+	// The retry delay uses exponential backoff, starting from 1 second, and will not exceed this value.
+	// Unit: seconds
+	// Default: 1800 (30 minutes)
+	MaxRetryDelay int `json:"maxRetryDelay" default:"1800"`
 }
 
 func LoadConfig(configFile *string) (*Config, error) {

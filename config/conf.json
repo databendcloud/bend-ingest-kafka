@@ -19,5 +19,6 @@
   "minBytes": 1024,
   "maxBytes": 10485760,
   "maxWait": 10,
-  "useReplaceMode": false
+  "useReplaceMode": false,
+  "maxRetryDelay": 1800
 }

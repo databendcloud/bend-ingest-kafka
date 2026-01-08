@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	godatabend "github.com/datafuselabs/databend-go"
 	"github.com/google/uuid"
@@ -42,6 +43,23 @@ type databendIngester struct {
 	db                  *sql.DB
 }
 
+type kafkaRecordMetadata struct {
+	Topic      string `json:"topic"`
+	Partition  int    `json:"partition"`
+	Offset     int64  `json:"offset"`
+	Key        string `json:"key"`
+	CreateTime string `json:"create_time"`
+}
+
+type ndjsonRecord struct {
+	UUID           string              `json:"uuid"`
+	Koffset        int64               `json:"koffset"`
+	Kpartition     int                 `json:"kpartition"`
+	RecordMetadata kafkaRecordMetadata `json:"record_metadata"`
+	AddTime        string              `json:"add_time"`
+	RawData        json.RawMessage     `json:"raw_data"`
+}
+
 func NewDatabendIngester(cfg *config.Config) DatabendIngester {
 	stats := NewDatabendIntesterStatsRecorder()
 	db, err := sql.Open("databend", cfg.DatabendDSN)
@@ -62,27 +80,61 @@ func (ig *databendIngester) Close() error {
 	return nil
 }
 
+// sanitizeUTF8 removes invalid UTF-8 sequences from a string
+func sanitizeUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	// Convert to valid UTF-8 by replacing invalid sequences
+	v := make([]rune, 0, len(s))
+	for i, r := range s {
+		if r == utf8.RuneError {
+			// Check if this is actually a decoding error
+			_, size := utf8.DecodeRuneInString(s[i:])
+			if size == 1 {
+				// This is an invalid UTF-8 sequence, skip it
+				continue
+			}
+		}
+		v = append(v, r)
+	}
+	return string(v)
+}
+
 func (ig *databendIngester) reWriteTheJsonData(messagesBatch *message.MessagesBatch) ([]string, error) {
 	batchJsonData := messagesBatch.Messages
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 
 	for i := 0; i < len(batchJsonData); i++ {
-		// re-write the json data into NDJson format, add the uuid, record_metadata and add_time fields
-		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":%d,\"offset\":%d, \"key\":\"%s\", \"create_time\":\"%s\"}",
-			ig.databendIngesterCfg.KafkaTopic,
-			batchJsonData[i].Partition,
-			batchJsonData[i].DataOffset,
-			batchJsonData[i].Key,
-			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
-		// add the uuid, record_metadata and add_time fields
-		d := fmt.Sprintf("{\"uuid\":\"%s\",\"koffset\":%d, \"kpartition\":%d, \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
-			uuid.New().String(),
-			batchJsonData[i].DataOffset,
-			batchJsonData[i].Partition,
-			recordMetadata,
-			time.Now().Format(time.RFC3339Nano),
-			batchJsonData[i].Data)
-		afterHandleJsonData = append(afterHandleJsonData, d)
+		// Sanitize the raw data to ensure valid UTF-8
+		sanitizedData := sanitizeUTF8(batchJsonData[i].Data)
+
+		// Create record metadata struct for proper JSON marshaling
+		recordMetadata := kafkaRecordMetadata{
+			Topic:      ig.databendIngesterCfg.KafkaTopic,
+			Partition:  batchJsonData[i].Partition,
+			Offset:     batchJsonData[i].DataOffset,
+			Key:        batchJsonData[i].Key,
+			CreateTime: batchJsonData[i].CreateTime.Format(time.RFC3339Nano),
+		}
+
+		// Use json.RawMessage for raw_data to avoid double encoding
+		record := ndjsonRecord{
+			UUID:           uuid.New().String(),
+			Koffset:        batchJsonData[i].DataOffset,
+			Kpartition:     batchJsonData[i].Partition,
+			RecordMetadata: recordMetadata,
+			AddTime:        time.Now().Format(time.RFC3339Nano),
+			RawData:        json.RawMessage(sanitizedData),
+		}
+
+		// Marshal the entire record to ensure proper JSON encoding
+		jsonData, err := json.Marshal(record)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal record: %w", err)
+		}
+
+		afterHandleJsonData = append(afterHandleJsonData, string(jsonData))
 	}
 	return afterHandleJsonData, nil
 }
@@ -92,29 +144,35 @@ func (ig *databendIngester) reWriteParquetJsonData(messagesBatch *message.Messag
 	afterHandleJsonData := make([]string, 0, len(batchJsonData))
 
 	for i := 0; i < len(batchJsonData); i++ {
-		recordMetadata := fmt.Sprintf("{\"topic\":\"%s\", \"partition\":%d,\"offset\":%d, \"key\":\"%s\", \"create_time\":\"%s\"}",
-			ig.databendIngesterCfg.KafkaTopic,
-			batchJsonData[i].Partition,
-			batchJsonData[i].DataOffset,
-			batchJsonData[i].Key,
-			batchJsonData[i].CreateTime.Format(time.RFC3339Nano))
-		recordMetadataJson, err := json.Marshal(recordMetadata)
-		if err != nil {
-			return nil, err
+		// Sanitize the raw data to ensure valid UTF-8
+		sanitizedData := sanitizeUTF8(batchJsonData[i].Data)
+
+		// Create record metadata struct for proper JSON marshaling
+		recordMetadata := kafkaRecordMetadata{
+			Topic:      ig.databendIngesterCfg.KafkaTopic,
+			Partition:  batchJsonData[i].Partition,
+			Offset:     batchJsonData[i].DataOffset,
+			Key:        batchJsonData[i].Key,
+			CreateTime: batchJsonData[i].CreateTime.Format(time.RFC3339Nano),
 		}
-		dataJson, err := json.Marshal(batchJsonData[i].Data)
-		if err != nil {
-			return nil, err
+
+		// Use json.RawMessage for raw_data to avoid double encoding
+		record := ndjsonRecord{
+			UUID:           uuid.New().String(),
+			Koffset:        batchJsonData[i].DataOffset,
+			Kpartition:     batchJsonData[i].Partition,
+			RecordMetadata: recordMetadata,
+			AddTime:        time.Now().Format(time.RFC3339Nano),
+			RawData:        json.RawMessage(sanitizedData),
 		}
-		// add the uuid, record_metadata and add_time fields
-		d := fmt.Sprintf("{\"uuid\":\"%s\",\"koffset\":%d, \"kpartition\":%d, \"record_metadata\":%s,\"add_time\":\"%s\",\"raw_data\":%s}",
-			uuid.New().String(),
-			batchJsonData[i].DataOffset,
-			batchJsonData[i].Partition,
-			string(recordMetadataJson),
-			time.Now().Format(time.RFC3339Nano),
-			string(dataJson))
-		afterHandleJsonData = append(afterHandleJsonData, d)
+
+		// Marshal the entire record to ensure proper JSON encoding
+		jsonData, err := json.Marshal(record)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal record: %w", err)
+		}
+
+		afterHandleJsonData = append(afterHandleJsonData, string(jsonData))
 	}
 	return afterHandleJsonData, nil
 }
@@ -194,13 +252,15 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 
 	stage, err := ig.uploadToStage(fileName)
 	if err != nil {
-		l.Errorf("upload to stage failed: %v, lastOffset is: %d\n", err, messageBatch.LastMessageOffset)
+		l.Errorf("upload to stage failed: %v, lastOffset is: %d, partition is %d\n", err,
+			messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
 		return err
 	}
 
 	err = ig.copyInto(stage)
 	if err != nil {
-		l.Errorf("copy into failed: %v, lastOffset is: %d\n", err, messageBatch.LastMessageOffset)
+		l.Errorf("copy into failed: %v, lastOffset is: %d, partition is %d\n", err,
+			messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
 		return err
 	}
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
