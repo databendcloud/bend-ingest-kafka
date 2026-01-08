@@ -23,7 +23,7 @@ jobs:
       # https://github.com/bitnami/containers/issues/4315#issuecomment-1545589060
       # Note: bitnami/zookeeper:3.8 was moved to bitnamilegacy repository
       zookeeper:
-        image: docker.io/bitnami/zookeeper:latest
+        image: docker.io/confluentinc/cp-zookeeper:7.6.1
         ports:
           - 2181:2181
         env:
