@@ -156,20 +156,26 @@ func (ig *databendIngester) reWriteParquetJsonData(messagesBatch *message.Messag
 			CreateTime: batchJsonData[i].CreateTime.Format(time.RFC3339Nano),
 		}
 
-		// Use json.RawMessage for raw_data to avoid double encoding
-		record := ndjsonRecord{
-			UUID:           uuid.New().String(),
-			Koffset:        batchJsonData[i].DataOffset,
-			Kpartition:     batchJsonData[i].Partition,
-			RecordMetadata: recordMetadata,
-			AddTime:        time.Now().Format(time.RFC3339Nano),
-			RawData:        json.RawMessage(sanitizedData),
+		// Marshal record metadata to JSON string (required for Parquet format)
+		recordMetadataJSON, err := json.Marshal(recordMetadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal record metadata: %w", err)
+		}
+
+		// Create a map for the parquet record (all fields must be strings for RecordForParquet)
+		parquetRecord := map[string]interface{}{
+			"uuid":            uuid.New().String(),
+			"koffset":         batchJsonData[i].DataOffset,
+			"kpartition":      batchJsonData[i].Partition,
+			"record_metadata": string(recordMetadataJSON),
+			"add_time":        time.Now().Format(time.RFC3339Nano),
+			"raw_data":        sanitizedData,
 		}
 
 		// Marshal the entire record to ensure proper JSON encoding
-		jsonData, err := json.Marshal(record)
+		jsonData, err := json.Marshal(parquetRecord)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal record: %w", err)
+			return nil, fmt.Errorf("failed to marshal parquet record: %w", err)
 		}
 
 		afterHandleJsonData = append(afterHandleJsonData, string(jsonData))
