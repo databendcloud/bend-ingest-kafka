@@ -10,6 +10,10 @@ go install  github.com/databendcloud/bend-ingest-kafka@latest
 
 Or download the binary from the [release page](https://github.com/databendcloud/bend-ingest-kafka/releases).
 
+```go
+bend-ingest-kafka --version
+```
+
 # Usage
 
 ## Json transform mode
