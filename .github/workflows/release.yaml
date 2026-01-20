@@ -35,9 +35,12 @@ jobs:
           echo ::set-output name=OS::${TARGETS%/*}
           echo ::set-output name=ARCH::${TARGETS#*/}
       - name: Build
+        env:
+          RELEASE_VERSION: ${{ steps.get_release.outputs.tag_name }}
         run: |
           ${{ env.GO_BUILD_ENV }} GOOS=${{ steps.get_matrix.outputs.OS }} GOARCH=${{ steps.get_matrix.outputs.ARCH }} \
             go build \
+            -ldflags "-X main.version=${RELEASE_VERSION}" \
             -o _bin/bend-ingest-kafka/${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}/bend-ingest-kafka
       - name: Compress
         run: |

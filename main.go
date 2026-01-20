@@ -25,9 +25,19 @@ var (
 	databendTable      = "default.test"
 )
 
+var version = "dev"
+
 func main() {
 	configFile := flag.String("f", "./config/conf.json", "Path to the configuration file")
+	showVersion := flag.Bool("v", false, "Print bend-ingest-kafka version and exit")
+	flag.BoolVar(showVersion, "version", false, "Print bend-ingest-kafka version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("bend-ingest-kafka version %s\n", version)
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		sigch := make(chan os.Signal, 1)
