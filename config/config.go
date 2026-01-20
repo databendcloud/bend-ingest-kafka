@@ -41,7 +41,7 @@ type Config struct {
 	// choose a value that is high enough for your largest message size.
 	//
 	// Default: 20MB
-	MaxBytes int `json:"maxBytes" default:"20 * 1024 * 1024"`
+	MaxBytes int `json:"maxBytes" default:"20971520"`
 	// Maximum amount of time to wait for new data to come when fetching batches
 	// of messages from kafka.
 	//
