@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -84,6 +85,12 @@ func validateConfig(cfg *config.Config) {
 	}
 	if cfg.IsSASL && cfg.SaslUser == "" {
 		panic("sasl user is required when sasl is enabled")
+	}
+	if cfg.DisableTLS && !cfg.IsSASL {
+		logrus.Warn("disableTLS is enabled without SASL. Connection will use PLAINTEXT protocol.")
+	}
+	if cfg.DisableTLS && cfg.IsSASL {
+		logrus.Warn("disableTLS is enabled with SASL. Credentials will be transmitted without encryption (SASL_PLAINTEXT). Only use in trusted networks.")
 	}
 }
 

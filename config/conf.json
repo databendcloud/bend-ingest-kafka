@@ -5,6 +5,7 @@
   "isSASL": false,
   "saslUser": "ccun_fbf463a8ca06693300193b59e1c7b0ce65c77f593bc1dab9baf080eb1bdb8f1d",
   "saslPassword": "ccp_c731c6250eff4cb7b8ef0a702fc33b050baff3213ae845e0f10b2fb71db7f18a",
+  "disableTLS": false,
   "mockData": "",
   "isJsonTransform": false,
   "databendDSN": "https://user:password@host:port/default?warehouse=test-sjh",

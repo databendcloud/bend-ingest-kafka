@@ -15,6 +15,7 @@ type Config struct {
 	IsSASL                bool   `json:"isSASL" default:"false"`
 	SaslUser              string `json:"saslUser"` // SASL user
 	SaslPassword          string `json:"saslPassword"`
+	DisableTLS            bool   `json:"disableTLS" default:"false"`
 	KafkaConsumerGroup    string `json:"KafkaConsumerGroup" default:"test-group"`
 	MockData              string `json:"mockData"`
 	IsJsonTransform       bool   `json:"isJsonTransform"`

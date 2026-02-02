@@ -107,6 +107,7 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 |isSASL                 | is sasl                   | false             | true                            |
 |saslUser               | sasl user                 | ""                | "user"                          |
 |saslPassword           | sasl password             | ""                | "password"                      |
+|disableTLS             | disable TLS encryption    | false             | true                            |
 | mockData              | mock data                 | ""                | ""                              |
 | isJsonTransform       | is json transform         | true              | true                            |
 | databendDSN           | databend dsn              | no                | "databend://user:password@localhost:8000/default?sslmode=disable"         |
@@ -124,6 +125,38 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | useReplaceMode       | use replace mode          | false             | false                           |
 | userStage             | user external stage name  | ~                 | ~                               |
 | maxRetryDelay         | max retry delay (seconds) | 1800              | 1800                            |
+
+## Kafka Security Protocols
+
+### SASL_SSL (Recommended for Production)
+- Set `isSASL: true` and `disableTLS: false` (or omit disableTLS)
+- Credentials and data encrypted in transit
+- Default configuration
+
+**Example:**
+```json
+{
+  "isSASL": true,
+  "saslUser": "username",
+  "saslPassword": "password",
+  "disableTLS": false
+}
+```
+
+### SASL_PLAINTEXT (Internal Networks Only)
+- Set `isSASL: true` and `disableTLS: true`
+- **WARNING**: Credentials transmitted without encryption
+- Only use in trusted internal networks
+
+**Example:**
+```json
+{
+  "isSASL": true,
+  "saslUser": "username",
+  "saslPassword": "password",
+  "disableTLS": true
+}
+```
 
 **NOTE:**
 - The `copyPurge and copyForce` are used to delete the data in the target table before ingesting the data. More details please refer to [copy](https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table#copy-options).

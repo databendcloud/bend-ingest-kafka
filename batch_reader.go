@@ -82,7 +82,11 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 		Timeout:       300 * time.Second,
 		DualStack:     true,
 		SASLMechanism: mechanism,
-		TLS:           &tls.Config{},
+	}
+
+	// Only enable TLS if not explicitly disabled
+	if !cfg.DisableTLS {
+		dialer.TLS = &tls.Config{}
 	}
 	kafkaReaderConfig := kafka.ReaderConfig{
 		Brokers:          parseKafkaServers(cfg.KafkaBootstrapServers),
