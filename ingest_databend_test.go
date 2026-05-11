@@ -323,14 +323,14 @@ func TestStreamingLoadNoRetryOn4xx(t *testing.T) {
 }
 
 func TestIngestDataWithStreamingLoad(t *testing.T) {
-	dsn := "databend://cloudapp:y3eg36v2we45@tn3ftqihs.gw.aws-us-east-2.default.databend.com:443/ariesdevil?warehouse=test-sjh"
+	tt := prepareIngestDatabendTest()
 	tableName := "default.test_ingest_streaming"
 
 	cfg := config.Config{
 		KafkaBootstrapServers: "127.0.0.1:9002",
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
-		DatabendDSN:           dsn,
+		DatabendDSN:           tt.databendDSN,
 		DataFormat:            "json",
 		IsJsonTransform:       false,
 		DatabendTable:         tableName,
@@ -339,7 +339,7 @@ func TestIngestDataWithStreamingLoad(t *testing.T) {
 		UseStreamingLoad:      true,
 	}
 
-	db, err := sql.Open("databend", dsn)
+	db, err := sql.Open("databend", cfg.DatabendDSN)
 	assert.NoError(t, err)
 	defer db.Close()
 
@@ -384,4 +384,3 @@ func TestIngestDataWithStreamingLoad(t *testing.T) {
 	}
 	assert.Equal(t, 1, count)
 }
-
