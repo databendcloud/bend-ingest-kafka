@@ -54,6 +54,10 @@ type Config struct {
 	UseReplaceMode bool   `json:"useReplaceMode" default:"false"`
 	UserStage      string `json:"userStage" default:"~"`
 
+	// UseStreamingLoad uses PUT /v1/streaming_load instead of uploadToStage+copyInto.
+	// Only valid when IsJsonTransform=false (raw mode). Cannot be combined with UseReplaceMode.
+	UseStreamingLoad bool `json:"useStreamingLoad" default:"false"`
+
 	// MaxRetryDelay indicates the maximum delay between retries when ingesting data fails.
 	// The retry delay uses exponential backoff, starting from 1 second, and will not exceed this value.
 	// Unit: seconds

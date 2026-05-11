@@ -1,10 +1,18 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -206,3 +214,174 @@ func TestIngestWithReplaceMode(t *testing.T) {
 	assert.Equal(t, messageData.DataOffset, res.Offset)
 
 }
+
+func TestStreamingLoadBuildRequest(t *testing.T) {
+	var receivedSQL string
+	var receivedAuth string
+	var receivedWarehouse string
+	var receivedBody []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSQL = r.Header.Get("X-Databend-SQL")
+		receivedAuth = r.Header.Get("Authorization")
+		receivedWarehouse = r.Header.Get("X-Databend-Warehouse")
+
+		mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		assert.True(t, strings.HasPrefix(mediaType, "multipart/"))
+
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		part, err := mr.NextPart()
+		assert.NoError(t, err)
+		assert.Equal(t, "upload", part.FormName())
+		receivedBody, _ = io.ReadAll(part)
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"test-id","stats":{"rows":1,"bytes":100}}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		DatabendDSN:      fmt.Sprintf("http://testuser:testpass@%s?sslmode=disable", server.Listener.Addr().String()),
+		DatabendTable:    "default.test_streaming",
+		UseStreamingLoad: true,
+		IsJsonTransform:  false,
+	}
+
+	ig := NewDatabendIngester(cfg).(*databendIngester)
+	data := []string{`{"uuid":"abc","koffset":1,"kpartition":0,"raw_data":{"name":"Alice"},"record_metadata":{},"add_time":"2024-01-01T00:00:00Z"}`}
+
+	bytesWritten, err := ig.streamingLoad(context.Background(), data)
+	assert.NoError(t, err)
+	assert.True(t, bytesWritten > 0)
+	assert.Contains(t, receivedSQL, "INSERT INTO default.test_streaming FROM @_databend_load")
+	assert.Contains(t, receivedSQL, "type=NDJSON")
+	assert.Contains(t, receivedAuth, "Basic")
+	assert.Equal(t, "", receivedWarehouse)
+	assert.Contains(t, string(receivedBody), `"name":"Alice"`)
+}
+
+func TestStreamingLoadRetryOn5xx(t *testing.T) {
+	var callCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&callCount, 1)
+		if count <= 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"internal"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"ok","stats":{"rows":1,"bytes":10}}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		DatabendDSN:      fmt.Sprintf("http://user:pass@%s?sslmode=disable", server.Listener.Addr().String()),
+		DatabendTable:    "default.test_retry",
+		UseStreamingLoad: true,
+		IsJsonTransform:  false,
+		MaxRetryDelay:    5,
+	}
+
+	ig := NewDatabendIngester(cfg)
+	batch := &message.MessagesBatch{
+		Messages: []message.MessageData{
+			{Data: `{"name":"Bob"}`, DataOffset: 1, Partition: 0, Key: "k", CreateTime: time.Now()},
+		},
+	}
+
+	err := DoRetry(func() error {
+		return ig.IngestData(batch)
+	}, 5*time.Second)
+	assert.NoError(t, err)
+	assert.True(t, atomic.LoadInt32(&callCount) >= int32(3))
+}
+
+func TestStreamingLoadNoRetryOn4xx(t *testing.T) {
+	var callCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"bad request"}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		DatabendDSN:      fmt.Sprintf("http://user:pass@%s?sslmode=disable", server.Listener.Addr().String()),
+		DatabendTable:    "default.test_no_retry",
+		UseStreamingLoad: true,
+		IsJsonTransform:  false,
+	}
+
+	ig := NewDatabendIngester(cfg).(*databendIngester)
+	data := []string{`{"name":"Carol"}`}
+
+	_, err := ig.streamingLoad(context.Background(), data)
+	assert.Error(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callCount))
+}
+
+func TestIngestDataWithStreamingLoad(t *testing.T) {
+	dsn := "databend://cloudapp:y3eg36v2we45@tn3ftqihs.gw.aws-us-east-2.default.databend.com:443/ariesdevil?warehouse=test-sjh"
+	tableName := "default.test_ingest_streaming"
+
+	cfg := config.Config{
+		KafkaBootstrapServers: "127.0.0.1:9002",
+		KafkaTopic:            "test",
+		KafkaConsumerGroup:    "test",
+		DatabendDSN:           dsn,
+		DataFormat:            "json",
+		IsJsonTransform:       false,
+		DatabendTable:         tableName,
+		BatchSize:             10,
+		BatchMaxInterval:      10,
+		UseStreamingLoad:      true,
+	}
+
+	db, err := sql.Open("databend", dsn)
+	assert.NoError(t, err)
+	defer db.Close()
+
+	err = execute(db, fmt.Sprintf("CREATE OR REPLACE TABLE %s (uuid String, koffset BIGINT, kpartition INT, raw_data JSON, record_metadata JSON, add_time TIMESTAMP)", tableName))
+	assert.NoError(t, err)
+	defer execute(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+
+	messageData := message.MessageData{
+		Data:       `{"name": "StreamingTest", "age": 99, "active": true}`,
+		DataOffset: 42,
+		Partition:  2,
+		Key:        "test-key",
+		CreateTime: time.Now(),
+	}
+	messagesBatch := &message.MessagesBatch{Messages: []message.MessageData{messageData}}
+
+	ig := NewDatabendIngester(&cfg)
+	defer ig.Close()
+
+	err = ig.IngestData(messagesBatch)
+	assert.NoError(t, err)
+
+	result, err := db.Query(fmt.Sprintf("SELECT uuid, koffset, kpartition, raw_data, record_metadata, add_time FROM %s", tableName))
+	assert.NoError(t, err)
+	defer result.Close()
+
+	count := 0
+	for result.Next() {
+		count++
+		var uuid string
+		var koffset int64
+		var kpartition int
+		var rawData string
+		var recordMeta string
+		var addTime string
+		err = result.Scan(&uuid, &koffset, &kpartition, &rawData, &recordMeta, &addTime)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, uuid)
+		assert.Equal(t, int64(42), koffset)
+		assert.Equal(t, 2, kpartition)
+		assert.Contains(t, rawData, "StreamingTest")
+	}
+	assert.Equal(t, 1, count)
+}
+

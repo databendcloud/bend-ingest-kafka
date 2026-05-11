@@ -135,7 +135,7 @@ func DoRetry(f retry.RetryableFunc, maxDelay time.Duration) error {
 			if err == nil {
 				return false
 			}
-			if errors.Is(err, ErrUploadStageFailed) || errors.Is(err, ErrCopyIntoFailed) {
+			if errors.Is(err, ErrUploadStageFailed) || errors.Is(err, ErrCopyIntoFailed) || errors.Is(err, ErrStreamingLoadFailed) {
 				return true
 			}
 			return false

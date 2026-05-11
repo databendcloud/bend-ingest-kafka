@@ -83,6 +83,18 @@ func validateConfig(cfg *config.Config) {
 	if cfg.IsJsonTransform && cfg.UseReplaceMode {
 		panic("replace mode can only be used when is-json-transform is false")
 	}
+	if cfg.UseStreamingLoad && cfg.IsJsonTransform {
+		panic("streaming load mode can only be used when is-json-transform is false (raw mode)")
+	}
+	if cfg.UseStreamingLoad && cfg.UseReplaceMode {
+		panic("streaming load mode cannot be combined with replace mode")
+	}
+	if cfg.UseStreamingLoad && cfg.IsJsonTransform {
+		panic("streaming load mode can only be used when is-json-transform is false (raw mode)")
+	}
+	if cfg.UseStreamingLoad && cfg.UseReplaceMode {
+		panic("streaming load mode cannot be combined with replace mode")
+	}
 	if cfg.IsSASL && cfg.SaslUser == "" {
 		panic("sasl user is required when sasl is enabled")
 	}
@@ -122,6 +134,7 @@ func parseConfig(configFile *string) *config.Config {
 	flag.IntVar(&cfg.MaxWait, "max-wait", 10, "max wait")
 	flag.BoolVar(&cfg.UseReplaceMode, "use-replace-mode", false, "use replace into mode")
 	flag.StringVar(&cfg.UserStage, "user-stage", "~", "user stage")
+	flag.BoolVar(&cfg.UseStreamingLoad, "use-streaming-load", false, "use /v1/streaming_load HTTP endpoint (raw mode only)")
 
 	flag.Parse()
 	validateConfig(&cfg)

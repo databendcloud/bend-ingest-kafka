@@ -8,8 +8,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +32,9 @@ import (
 )
 
 var (
-	ErrUploadStageFailed = errors.New("upload stage failed")
-	ErrCopyIntoFailed    = errors.New("copy into failed")
+	ErrUploadStageFailed    = errors.New("upload stage failed")
+	ErrCopyIntoFailed       = errors.New("copy into failed")
+	ErrStreamingLoadFailed  = errors.New("streaming load failed")
 )
 
 type DatabendIngester interface {
@@ -44,6 +48,7 @@ type databendIngester struct {
 	databendIngesterCfg *config.Config
 	statsRecorder       *DatabendIngesterStatsRecorder
 	db                  *sql.DB
+	httpClient          *http.Client
 }
 
 type kafkaRecordMetadata struct {
@@ -74,6 +79,7 @@ func NewDatabendIngester(cfg *config.Config) DatabendIngester {
 		databendIngesterCfg: cfg,
 		statsRecorder:       stats,
 		db:                  db,
+		httpClient:          &http.Client{Timeout: 5 * time.Minute},
 	}
 }
 
@@ -82,6 +88,87 @@ func (ig *databendIngester) Close() error {
 		return ig.db.Close()
 	}
 	return nil
+}
+
+func buildStreamingLoadURL(cfg *godatabend.Config) string {
+	scheme := "https"
+	if cfg.SSLMode == "disable" {
+		scheme = "http"
+	}
+	return fmt.Sprintf("%s://%s/v1/streaming_load", scheme, cfg.Host)
+}
+
+func (ig *databendIngester) streamingLoad(ctx context.Context, batchJsonData []string) (int, error) {
+	startTime := time.Now()
+
+	dbCfg, err := godatabend.ParseDSN(ig.databendIngesterCfg.DatabendDSN)
+	if err != nil {
+		return 0, errors.Wrap(err, "parse databend dsn failed")
+	}
+
+	endpoint := buildStreamingLoadURL(dbCfg)
+
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	bytesCh := make(chan int, 1)
+
+	go func() {
+		defer pw.Close()
+		part, partErr := mw.CreateFormFile("upload", "batch.ndjson")
+		if partErr != nil {
+			pw.CloseWithError(partErr)
+			bytesCh <- 0
+			return
+		}
+		n := 0
+		for _, line := range batchJsonData {
+			b := []byte(line + "\n")
+			written, writeErr := part.Write(b)
+			if writeErr != nil {
+				pw.CloseWithError(writeErr)
+				bytesCh <- n
+				return
+			}
+			n += written
+		}
+		mw.Close()
+		bytesCh <- n
+	}()
+
+	insertSQL := fmt.Sprintf(
+		"INSERT INTO %s FROM @_databend_load FILE_FORMAT=(type=NDJSON missing_field_as=FIELD_DEFAULT COMPRESSION=AUTO)",
+		ig.databendIngesterCfg.DatabendTable,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, pr)
+	if err != nil {
+		return 0, errors.Wrap(ErrStreamingLoadFailed, err.Error())
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("X-Databend-SQL", insertSQL)
+	if dbCfg.User != "" {
+		req.SetBasicAuth(dbCfg.User, dbCfg.Password)
+	}
+	if dbCfg.Warehouse != "" {
+		req.Header.Set("X-Databend-Warehouse", dbCfg.Warehouse)
+	}
+
+	resp, err := ig.httpClient.Do(req)
+	bytesWritten := <-bytesCh
+	if err != nil {
+		return 0, errors.Wrap(ErrStreamingLoadFailed, err.Error())
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return 0, errors.Wrap(ErrStreamingLoadFailed,
+			fmt.Sprintf("status=%d body=%s", resp.StatusCode, string(body)))
+	}
+
+	logrus.Infof("streaming load %s, rows=%d bytes=%d cost=%s",
+		ig.databendIngesterCfg.DatabendTable, len(batchJsonData), bytesWritten, time.Since(startTime))
+	return bytesWritten, nil
 }
 
 // sanitizeUTF8 removes or replaces invalid UTF-8 sequences from a string
@@ -283,6 +370,19 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 			l.Errorf("re-write the json data failed: %v, lastOffset is: %d\n", err, messageBatch.LastMessageOffset)
 			return err
 		}
+	}
+
+	if ig.databendIngesterCfg.UseStreamingLoad {
+		bytesSize, err := ig.streamingLoad(context.Background(), batchJsonData)
+		if err != nil {
+			l.Errorf("streaming load failed: %v, lastOffset is: %d, partition is %d\n", err,
+				messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
+			return err
+		}
+		ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
+		stats := ig.statsRecorder.Stats(time.Since(startTime))
+		log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s) in %s", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond, time.Since(startTime))
+		return nil
 	}
 
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
