@@ -123,6 +123,7 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | MaxBytes              | max bytes                 | 1048576           | 1048576                         |
 | MaxWait               | max wait time (seconds)   | 10                | 10                              |
 | useReplaceMode       | use replace mode          | false             | false                           |
+| useStreamingLoad     | use streaming load mode (raw mode only) | false | true                           |
 | userStage             | user external stage name  | ~                 | ~                               |
 | maxRetryDelay         | max retry delay (seconds) | 1800              | 1800                            |
 
@@ -161,3 +162,4 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 **NOTE:**
 - The `copyPurge and copyForce` are used to delete the data in the target table before ingesting the data. More details please refer to [copy](https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table#copy-options).
 - The `useReplaceMode` is used to replace the data in the table, if the data already exists in the table, the new data will replace the old data. But the `useReplaceMode` is only supported when `isJsonTransform` false because it needs to add `koffset` and `kpartition` field in the target table.
+- The `useStreamingLoad` uses Databend's `PUT /v1/streaming_load` HTTP endpoint to ingest data directly without staging. It streams NDJson data via a single multipart HTTP request, which is simpler and faster than the default two-step `uploadToStage + copyInto` path. Only available when `isJsonTransform` is false (raw mode) and cannot be combined with `useReplaceMode`.
