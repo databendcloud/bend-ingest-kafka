@@ -51,9 +51,47 @@ func BenchmarkRewriteRawNDJSON1K(b *testing.B) {
 	}
 }
 
+func BenchmarkRewriteRawNDJSON100K(b *testing.B) {
+	ig := benchmarkIngester()
+	batch := benchmarkMessageBatch(100000)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rows, err := ig.reWriteTheJsonData(batch)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(rows) != len(batch.Messages) {
+			b.Fatalf("got %d rows, want %d", len(rows), len(batch.Messages))
+		}
+	}
+}
+
 func BenchmarkGenerateNDJSONFile1K(b *testing.B) {
 	ig := benchmarkIngester()
 	rows, err := ig.reWriteTheJsonData(benchmarkMessageBatch(1000))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		name, _, err := ig.generateNDJsonFile(rows)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := os.Remove(name); err != nil {
+			b.Fatal(err)
+		}
+		_ = name
+	}
+}
+
+func BenchmarkGenerateNDJSONFile100K(b *testing.B) {
+	ig := benchmarkIngester()
+	rows, err := ig.reWriteTheJsonData(benchmarkMessageBatch(100000))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -85,6 +123,23 @@ func BenchmarkBuildParquetRecords1K(b *testing.B) {
 		}
 		if len(records) != len(batch.Messages) {
 			b.Fatalf("got %d records, want %d", len(records), len(batch.Messages))
+		}
+	}
+}
+
+func BenchmarkRewriteParquetJSON100K(b *testing.B) {
+	ig := benchmarkIngester()
+	batch := benchmarkMessageBatch(100000)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rows, err := ig.reWriteParquetJsonData(batch)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(rows) != len(batch.Messages) {
+			b.Fatalf("got %d rows, want %d", len(rows), len(batch.Messages))
 		}
 	}
 }
