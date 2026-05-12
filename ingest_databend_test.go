@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	godatabend "github.com/datafuselabs/databend-go"
 	"github.com/klauspost/compress/zstd"
 	"github.com/test-go/testify/assert"
 
@@ -287,6 +288,31 @@ func TestGenerateNDJsonFileWithZstdCompression(t *testing.T) {
 	body, err := io.ReadAll(decoder)
 	assert.NoError(t, err)
 	assert.Equal(t, "{\"name\":\"Alice\"}\n{\"name\":\"Bob\"}\n", string(body))
+}
+
+func TestBuildCopyIntoSQLUsesFilesOption(t *testing.T) {
+	stage := &godatabend.StageLocation{
+		Name: "otel_tmp",
+		Path: "batch/1778578427-databend-ingest-2394177572.ndjson.zst",
+	}
+
+	sql := buildCopyIntoSQL("otel_traces.kafka_raw", stage, true, false, true)
+
+	assert.Contains(t, sql, "COPY INTO otel_traces.kafka_raw FROM @otel_tmp/batch/ FILES = ('1778578427-databend-ingest-2394177572.ndjson.zst')")
+	assert.NotContains(t, sql, "FROM @otel_tmp/batch/1778578427-databend-ingest-2394177572.ndjson.zst")
+	assert.Contains(t, sql, "FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO)")
+	assert.Contains(t, sql, "PURGE = true FORCE = false DISABLE_VARIANT_CHECK = true")
+}
+
+func TestBuildCopyIntoSQLEscapesFileName(t *testing.T) {
+	stage := &godatabend.StageLocation{
+		Name: "otel_tmp",
+		Path: "batch/batch's.ndjson.zst",
+	}
+
+	sql := buildCopyIntoSQL("otel_traces.kafka_raw", stage, false, false, false)
+
+	assert.Contains(t, sql, "FROM @otel_tmp/batch/ FILES = ('batch''s.ndjson.zst')")
 }
 
 func TestStreamingLoadRetryOn5xx(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -615,10 +616,28 @@ func execute(db *sql.DB, sql string) error {
 	return nil
 }
 
+func sqlStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+func stageDirAndFile(stage *godatabend.StageLocation) (string, string) {
+	dir, file := path.Split(stage.Path)
+	if dir == "" {
+		return fmt.Sprintf("@%s", stage.Name), file
+	}
+	return (&godatabend.StageLocation{Name: stage.Name, Path: dir}).String(), file
+}
+
+func buildCopyIntoSQL(table string, stage *godatabend.StageLocation, purge, force, disableVariantCheck bool) string {
+	stageDir, file := stageDirAndFile(stage)
+	return fmt.Sprintf("COPY INTO %s FROM %s FILES = (%s) FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO) "+
+		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", table, stageDir, sqlStringLiteral(file),
+		purge, force, disableVariantCheck)
+}
+
 func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 	startTime := time.Now()
-	copyIntoSQL := fmt.Sprintf("COPY INTO %s FROM %s FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO) "+
-		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", ig.databendIngesterCfg.DatabendTable, stage.String(),
+	copyIntoSQL := buildCopyIntoSQL(ig.databendIngesterCfg.DatabendTable, stage,
 		ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce, ig.databendIngesterCfg.DisableVariantCheck)
 
 	if err := execute(ig.db, copyIntoSQL); err != nil {
