@@ -206,3 +206,48 @@ func TestConsumerWithoutTransform(t *testing.T) {
 
 	assert.NotEqual(t, 0, count)
 }
+
+func TestConsumerWithoutTransformWithCompressedCopyInto(t *testing.T) {
+	consumeRawTopic := "consume_raw_zstd_test"
+	consumeRawPartition := 1
+	tableName := "test_ingest_raw_zstd"
+	tt := prepareConsumeWorkerTest(consumeRawTopic, consumeRawPartition)
+
+	db, err := sql.Open("databend", tt.databendDSN)
+	assert.NoError(t, err)
+	defer execute(db, fmt.Sprintf("drop table if exists %s;", tableName))
+	produceMessage(consumeRawTopic, consumeRawPartition)
+
+	cfg := &config.Config{
+		DatabendDSN:               tt.databendDSN,
+		DatabendTable:             tableName,
+		KafkaTopic:                consumeRawTopic,
+		KafkaBootstrapServers:     tt.kafkaBrokers[0],
+		IsJsonTransform:           false,
+		KafkaConsumerGroup:        "test-zstd",
+		BatchSize:                 10,
+		Workers:                   1,
+		DataFormat:                "json",
+		BatchMaxInterval:          10,
+		DisableVariantCheck:       true,
+		UserStage:                 "~",
+		CopyIntoUploadCompression: true,
+	}
+	ig := NewDatabendIngester(cfg)
+	err = ig.CreateRawTargetTable()
+	assert.NoError(t, err)
+
+	w := NewConsumeWorker(cfg, "worker-zstd", ig)
+	err = w.stepBatch(context.TODO())
+	assert.NoError(t, err)
+
+	result, err := db.Query(fmt.Sprintf("select count(*) from %s", tableName))
+	assert.NoError(t, err)
+	defer result.Close()
+
+	var count int
+	assert.True(t, result.Next())
+	err = result.Scan(&count)
+	assert.NoError(t, err)
+	assert.NotEqual(t, 0, count)
+}

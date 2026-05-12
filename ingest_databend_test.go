@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/test-go/testify/assert"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -258,6 +259,34 @@ func TestStreamingLoadBuildRequest(t *testing.T) {
 	assert.Contains(t, receivedAuth, "Basic")
 	assert.Equal(t, "", receivedWarehouse)
 	assert.Contains(t, string(receivedBody), `"name":"Alice"`)
+}
+
+func TestGenerateNDJsonFileWithZstdCompression(t *testing.T) {
+	ig := &databendIngester{
+		databendIngesterCfg: &config.Config{
+			CopyIntoUploadCompression: true,
+		},
+	}
+	rows := []string{`{"name":"Alice"}`, `{"name":"Bob"}`}
+
+	name, size, err := ig.generateNDJsonFile(rows)
+	assert.NoError(t, err)
+	defer os.Remove(name)
+
+	assert.True(t, strings.HasSuffix(name, ".ndjson.zst"))
+	assert.True(t, size > 0)
+
+	f, err := os.Open(name)
+	assert.NoError(t, err)
+	defer f.Close()
+
+	decoder, err := zstd.NewReader(f)
+	assert.NoError(t, err)
+	defer decoder.Close()
+
+	body, err := io.ReadAll(decoder)
+	assert.NoError(t, err)
+	assert.Equal(t, "{\"name\":\"Alice\"}\n{\"name\":\"Bob\"}\n", string(body))
 }
 
 func TestStreamingLoadRetryOn5xx(t *testing.T) {
