@@ -22,6 +22,7 @@ import (
 
 	godatabend "github.com/datafuselabs/databend-go"
 	"github.com/google/uuid"
+	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/xitongsys/parquet-go/writer"
@@ -499,33 +500,71 @@ func getFileSize(filename string) int {
 }
 
 func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, int, error) {
-	outputFile, err := ioutil.TempFile("/tmp", "databend-ingest-*.ndjson")
+	pattern := "databend-ingest-*.ndjson"
+	if ig.databendIngesterCfg.CopyIntoUploadCompression {
+		pattern = "databend-ingest-*.ndjson.zst"
+	}
+
+	outputFile, err := ioutil.TempFile("/tmp", pattern)
 	if err != nil {
 		return "", 0, err
 	}
-	defer outputFile.Close()
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(outputFile.Name())
+		}
+	}()
 
-	// Create a buffered writer for the Ndjson file
-	writer := bufio.NewWriter(outputFile)
+	var writer io.Writer = outputFile
+	var zstdWriter *zstd.Encoder
+	if ig.databendIngesterCfg.CopyIntoUploadCompression {
+		zstdWriter, err = zstd.NewWriter(outputFile)
+		if err != nil {
+			_ = outputFile.Close()
+			return "", 0, err
+		}
+		writer = zstdWriter
+	}
+
+	// Create a buffered writer for the NDJSON file.
+	bufferedWriter := bufio.NewWriter(writer)
 	bytesSum := 0
 
 	for _, data := range batchJsonData {
-		n, err := writer.WriteString(data)
+		n, err := bufferedWriter.WriteString(data)
 		if err != nil {
+			_ = outputFile.Close()
 			return "", 0, err
 		}
 		bytesSum += n
-		if err := writer.WriteByte('\n'); err != nil {
+		if err := bufferedWriter.WriteByte('\n'); err != nil {
+			_ = outputFile.Close()
 			return "", 0, err
 		}
 		bytesSum++
 	}
-	// Flush any remaining data to the NDJson file
-	err = writer.Flush()
-	if err != nil {
+	// Flush any remaining data to the NDJSON file.
+	if err = bufferedWriter.Flush(); err != nil {
+		_ = outputFile.Close()
 		return "", 0, err
 	}
-	return outputFile.Name(), bytesSum, err
+	if zstdWriter != nil {
+		if err = zstdWriter.Close(); err != nil {
+			_ = outputFile.Close()
+			return "", 0, err
+		}
+	}
+	if err = outputFile.Close(); err != nil {
+		return "", 0, err
+	}
+
+	fileSize := bytesSum
+	if ig.databendIngesterCfg.CopyIntoUploadCompression {
+		fileSize = getFileSize(outputFile.Name())
+	}
+	success = true
+	return outputFile.Name(), fileSize, nil
 }
 
 func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLocation, error) {

@@ -58,6 +58,9 @@ type Config struct {
 	// Only valid when IsJsonTransform=false (raw mode). Cannot be combined with UseReplaceMode.
 	UseStreamingLoad bool `json:"useStreamingLoad" default:"false"`
 
+	// CopyIntoUploadCompression enables zstd compression for staged NDJSON files used by COPY INTO.
+	CopyIntoUploadCompression bool `json:"copyIntoUploadCompression" default:"true"`
+
 	// MaxRetryDelay indicates the maximum delay between retries when ingesting data fails.
 	// The retry delay uses exponential backoff, starting from 1 second, and will not exceed this value.
 	// Unit: seconds

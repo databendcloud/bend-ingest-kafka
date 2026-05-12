@@ -124,6 +124,7 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | MaxWait               | max wait time (seconds)   | 10                | 10                              |
 | useReplaceMode       | use replace mode          | false             | false                           |
 | useStreamingLoad     | use streaming load mode (raw mode only) | false | true                           |
+| copyIntoUploadCompression | enable zstd compression for staged NDJSON files used by COPY INTO | true | true |
 | userStage             | user external stage name  | ~                 | ~                               |
 | maxRetryDelay         | max retry delay (seconds) | 1800              | 1800                            |
 

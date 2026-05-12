@@ -135,6 +135,7 @@ func parseConfig(configFile *string) *config.Config {
 	flag.BoolVar(&cfg.UseReplaceMode, "use-replace-mode", false, "use replace into mode")
 	flag.StringVar(&cfg.UserStage, "user-stage", "~", "user stage")
 	flag.BoolVar(&cfg.UseStreamingLoad, "use-streaming-load", false, "use /v1/streaming_load HTTP endpoint (raw mode only)")
+	flag.BoolVar(&cfg.CopyIntoUploadCompression, "copy-into-upload-compression", true, "enable zstd compression for staged NDJSON files used by COPY INTO")
 
 	flag.Parse()
 	validateConfig(&cfg)
