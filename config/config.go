@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/mcuadros/go-defaults"
@@ -76,7 +76,7 @@ func LoadConfig(configFile *string) (*Config, error) {
 		return nil, err
 	}
 	defer f.Close()
-	confByte, err := ioutil.ReadAll(f)
+	confByte, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("read config file failed: %v", err)
 	}

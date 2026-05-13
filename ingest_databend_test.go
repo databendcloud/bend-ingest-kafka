@@ -51,7 +51,7 @@ func TestIngestDataIsJsonTransform(t *testing.T) {
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
 		DatabendDSN:           tt.databendDSN,
-		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
+		// DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
 		DataFormat:       "json",
 		IsJsonTransform:  true,
 		DatabendTable:    "test_ingest",
@@ -107,7 +107,7 @@ func TestIngestDataWithoutJsonTransform(t *testing.T) {
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
 		DatabendDSN:           tt.databendDSN,
-		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
+		// DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
 		DataFormat:       "json",
 		IsJsonTransform:  false,
 		DatabendTable:    "default.test_ingest_without",
@@ -162,7 +162,7 @@ func TestIngestWithReplaceMode(t *testing.T) {
 		KafkaTopic:            "test",
 		KafkaConsumerGroup:    "test",
 		DatabendDSN:           tt.databendDSN,
-		//DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
+		// DatabendDSN:      os.Getenv("TEST_DATABEND_DSN"),
 		DataFormat:       "json",
 		IsJsonTransform:  false,
 		DatabendTable:    tableName,
@@ -214,7 +214,6 @@ func TestIngestWithReplaceMode(t *testing.T) {
 	fmt.Println(*res)
 	assert.NoError(t, err)
 	assert.Equal(t, messageData.DataOffset, res.Offset)
-
 }
 
 func TestStreamingLoadBuildRequest(t *testing.T) {
@@ -347,7 +346,7 @@ func TestStreamingLoadRetryOn5xx(t *testing.T) {
 
 	err := DoRetry(func() error {
 		return ig.IngestData(batch)
-	}, 5*time.Second)
+	}, 5*time.Second, "IngestData")
 	assert.NoError(t, err)
 	assert.True(t, atomic.LoadInt32(&callCount) >= int32(3))
 }
