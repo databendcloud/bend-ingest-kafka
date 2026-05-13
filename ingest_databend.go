@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -506,7 +505,7 @@ func (ig *databendIngester) generateNDJsonFile(batchJsonData []string) (string, 
 		pattern = "databend-ingest-*.ndjson.zst"
 	}
 
-	outputFile, err := ioutil.TempFile("/tmp", pattern)
+	outputFile, err := os.CreateTemp("/tmp", pattern)
 	if err != nil {
 		return "", 0, err
 	}

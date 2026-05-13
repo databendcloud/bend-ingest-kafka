@@ -66,7 +66,8 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 		err := DoRetry(
 			func() error {
 				return c.ig.IngestParquetData(batch)
-			}, maxRetryDelay)
+			}, maxRetryDelay, "IngestParquetData",
+		)
 		if err != nil {
 			l.Errorf("Failed to ingest data between %d-%d into Databend: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
@@ -75,7 +76,8 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 		err := DoRetry(
 			func() error {
 				return c.ig.IngestData(batch)
-			}, maxRetryDelay)
+			}, maxRetryDelay, "IngestData",
+		)
 		if err != nil {
 			l.Errorf("Failed to ingest data between %d-%d into Databend: %v after retry 5 attempts\n", batch.FirstMessageOffset, batch.LastMessageOffset, err)
 			return err
@@ -125,7 +127,7 @@ func (c *ConsumeWorker) Run(ctx context.Context) {
 	}
 }
 
-func DoRetry(f retry.RetryableFunc, maxDelay time.Duration) error {
+func DoRetry(f retry.RetryableFunc, maxDelay time.Duration, name string) error {
 	delay := time.Second
 	return retry.Do(
 		func() error {
@@ -139,6 +141,9 @@ func DoRetry(f retry.RetryableFunc, maxDelay time.Duration) error {
 				return true
 			}
 			return false
+		}),
+		retry.OnRetry(func(n uint, err error) {
+			logrus.Warnf("%s retry attempts: %d: %s", name, n, err)
 		}),
 		retry.Delay(delay),
 		retry.MaxDelay(maxDelay),
