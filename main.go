@@ -110,8 +110,20 @@ func parseConfig(configFile *string) *config.Config {
 	if *configFile == "" {
 		*configFile = "config/conf.json"
 	}
+
+	// Detect whether the user explicitly passed -f on the command line.
+	fileFlagSet := false
+	flag.Visit(func(fl *flag.Flag) {
+		if fl.Name == "f" {
+			fileFlagSet = true
+		}
+	})
+
 	if _, err := os.Stat(*configFile); err == nil {
 		return parseConfigWithFile(configFile)
+	} else if fileFlagSet {
+		// User explicitly specified a config file but it cannot be used.
+		panic(fmt.Sprintf("config file %q not found or not accessible: %v", *configFile, err))
 	}
 
 	cfg := config.Config{}

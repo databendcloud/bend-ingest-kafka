@@ -71,18 +71,22 @@ type Config struct {
 func LoadConfig(configFile *string) (*Config, error) {
 	conf := Config{}
 
-	f, err := os.Open("config/conf.json")
+	path := "config/conf.json"
+	if configFile != nil && *configFile != "" {
+		path = *configFile
+	}
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open config file %q failed: %w", path, err)
 	}
 	defer f.Close()
 	confByte, err := io.ReadAll(f)
 	if err != nil {
-		return nil, fmt.Errorf("read config file failed: %v", err)
+		return nil, fmt.Errorf("read config file %q failed: %w", path, err)
 	}
 	err = json.Unmarshal(confByte, &conf)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshal config failed: %v", err)
+		return nil, fmt.Errorf("unmarshal config file %q failed: %w", path, err)
 	}
 	defaults.SetDefaults(&conf)
 
