@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -154,10 +153,3 @@ func parseConfig(configFile *string) *config.Config {
 	return &cfg
 }
 
-func parseKafkaServers(kafkaServerStr string) []string {
-	kafkaServers := strings.Split(kafkaServerStr, ",")
-	if len(kafkaServers) == 0 {
-		panic("should have kafka servers")
-	}
-	return kafkaServers
-}

@@ -39,7 +39,8 @@ func prepareIngestDatabendTest() *ingestDatabendTest {
 func TestParseKafkaServers(t *testing.T) {
 	s1 := []string{"127.0.0.1:8000", "127.0.0.1:8000,127.0.0.2:8000"}
 	for _, s := range s1 {
-		res := parseKafkaServers(s)
+		res := strings.Split(s, ",")
+		assert.NotEmpty(t, res)
 		fmt.Println(res)
 	}
 }
