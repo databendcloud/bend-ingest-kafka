@@ -170,11 +170,6 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 			break
 		}
 
-		// If we've waited 2x the batch interval with no messages at all, return empty
-		if time.Now().After(batchDeadline.Add(time.Duration(br.maxBatchInterval)*time.Second)) && len(batch) == 0 {
-			break
-		}
-
 		if len(batch) > 0 && time.Since(lastMessageTime) > maxMessageInterval {
 			l.Infof("Message interval exceeded %v, ending batch with %d messages",
 				maxMessageInterval, len(batch))
