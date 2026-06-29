@@ -1,15 +1,16 @@
 module github.com/databendcloud/bend-ingest-kafka
 
-go 1.21
+go 1.23
 
 require (
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/codesuki/go-time-series v0.0.0-20210430055340-c4c8d8fa61d4
 	github.com/datafuselabs/databend-go v0.6.5
 	github.com/google/uuid v1.3.0
+	github.com/klauspost/compress v1.15.9
 	github.com/mcuadros/go-defaults v1.2.0
 	github.com/pkg/errors v0.9.1
-	github.com/segmentio/kafka-go v0.4.39
+	github.com/segmentio/kafka-go v0.4.51
 	github.com/sirupsen/logrus v1.9.0
 	github.com/test-go/testify v1.1.4
 	github.com/xitongsys/parquet-go v1.6.2
@@ -26,7 +27,6 @@ require (
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
-	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
