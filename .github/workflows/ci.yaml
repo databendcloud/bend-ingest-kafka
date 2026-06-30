@@ -61,4 +61,4 @@ jobs:
           TEST_KAFKA_BROKER: "localhost:9092"
           CGO_ENABLED: "1"
         run: |
-          go test -v -p 1 -cover ./...
+          go test -v -p 1 -cover $(go list ./... | grep -v /scripts)
