@@ -6,19 +6,69 @@ on:
       - created
 
 env:
-  # Common versions
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.23'
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  build_and_upload:
+  build_linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        TARGETS: [ linux/amd64, darwin/amd64, windows/amd64, linux/arm64, darwin/arm64 ]
-    env:
-      GO_BUILD_ENV: GO111MODULE=on CGO_ENABLED=0
-      DIST_DIRS: find * -type d -exec
+        include:
+          - arch: amd64
+            cc: gcc
+          - arch: arm64
+            cc: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install cross-compilation tools
+        if: matrix.arch == 'arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Get release
+        id: get_release
+        uses: bruceadams/get-release@v1.2.2
+      - name: Build
+        env:
+          CGO_ENABLED: 1
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CC: ${{ matrix.cc }}
+          RELEASE_VERSION: ${{ steps.get_release.outputs.tag_name }}
+        run: |
+          go build \
+            -ldflags "-X main.version=${RELEASE_VERSION}" \
+            -o _bin/bend-ingest-kafka/linux-${{ matrix.arch }}/bend-ingest-kafka
+      - name: Compress
+        run: |
+          cd _bin/bend-ingest-kafka && \
+          cp ../../LICENSE linux-${{ matrix.arch }}/ && \
+          cp ../../README.md linux-${{ matrix.arch }}/ && \
+          tar -zcf bend-ingest-kafka-linux-${{ matrix.arch }}.tar.gz linux-${{ matrix.arch }} && \
+          cd .. && \
+          sha256sum bend-ingest-kafka/bend-ingest-kafka-linux-${{ matrix.arch }}.tar.gz >> sha256-linux-${{ matrix.arch }}.txt
+      - name: Upload tar.gz
+        uses: actions/upload-release-asset@v1.0.2
+        with:
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
+          asset_path: ./_bin/bend-ingest-kafka/bend-ingest-kafka-linux-${{ matrix.arch }}.tar.gz
+          asset_name: bend-ingest-kafka-linux-${{ matrix.arch }}-${{ steps.get_release.outputs.tag_name }}.tar.gz
+          asset_content_type: binary/octet-stream
+      - name: Post sha256
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha256sums-linux-${{ matrix.arch }}
+          path: ./_bin/sha256-linux-${{ matrix.arch }}.txt
+          retention-days: 1
+
+  build_darwin:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go
@@ -28,44 +78,40 @@ jobs:
       - name: Get release
         id: get_release
         uses: bruceadams/get-release@v1.2.2
-      - name: Get matrix
-        id: get_matrix
-        run: |
-          TARGETS=${{matrix.TARGETS}}
-          echo ::set-output name=OS::${TARGETS%/*}
-          echo ::set-output name=ARCH::${TARGETS#*/}
       - name: Build
         env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: ${{ matrix.arch }}
           RELEASE_VERSION: ${{ steps.get_release.outputs.tag_name }}
         run: |
-          ${{ env.GO_BUILD_ENV }} GOOS=${{ steps.get_matrix.outputs.OS }} GOARCH=${{ steps.get_matrix.outputs.ARCH }} \
-            go build \
+          go build \
             -ldflags "-X main.version=${RELEASE_VERSION}" \
-            -o _bin/bend-ingest-kafka/${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}/bend-ingest-kafka
+            -o _bin/bend-ingest-kafka/darwin-${{ matrix.arch }}/bend-ingest-kafka
       - name: Compress
         run: |
           cd _bin/bend-ingest-kafka && \
-          ${{ env.DIST_DIRS }} cp ../../LICENSE {} \; && \
-          ${{ env.DIST_DIRS }} cp ../../README.md {} \; && \
-          ${{ env.DIST_DIRS }} tar -zcf bend-ingest-kafka-{}.tar.gz {} \; && \
+          cp ../../LICENSE darwin-${{ matrix.arch }}/ && \
+          cp ../../README.md darwin-${{ matrix.arch }}/ && \
+          tar -zcf bend-ingest-kafka-darwin-${{ matrix.arch }}.tar.gz darwin-${{ matrix.arch }} && \
           cd .. && \
-          sha256sum bend-ingest-kafka/bend-ingest-kafka-* >> sha256-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}.txt \
-      - name: Upload bend-ingest-kafka tar.gz
+          shasum -a 256 bend-ingest-kafka/bend-ingest-kafka-darwin-${{ matrix.arch }}.tar.gz >> sha256-darwin-${{ matrix.arch }}.txt
+      - name: Upload tar.gz
         uses: actions/upload-release-asset@v1.0.2
         with:
           upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: ./_bin/bend-ingest-kafka/bend-ingest-kafka-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}.tar.gz
-          asset_name: bend-ingest-kafka-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}-${{ steps.get_release.outputs.tag_name }}.tar.gz
+          asset_path: ./_bin/bend-ingest-kafka/bend-ingest-kafka-darwin-${{ matrix.arch }}.tar.gz
+          asset_name: bend-ingest-kafka-darwin-${{ matrix.arch }}-${{ steps.get_release.outputs.tag_name }}.tar.gz
           asset_content_type: binary/octet-stream
       - name: Post sha256
         uses: actions/upload-artifact@v4
         with:
-          name: sha256sums-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}
-          path: ./_bin/sha256-${{ steps.get_matrix.outputs.OS }}-${{ steps.get_matrix.outputs.ARCH }}.txt
+          name: sha256sums-darwin-${{ matrix.arch }}
+          path: ./_bin/sha256-darwin-${{ matrix.arch }}.txt
           retention-days: 1
 
   upload-sha256sums:
-    needs: build_and_upload
+    needs: [build_linux, build_darwin]
     runs-on: ubuntu-latest
     name: upload-sha256sums
     steps:

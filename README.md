@@ -49,7 +49,7 @@ bend-ingest-kafka
   --kafka-bootstrap-servers="127.0.0.1:9092,127.0.0.2:9092"\
   --kafka-topic="Your Topic"\
   --kafka-consumer-group= "Consumer Group"\
-  --databend-dsn="databend://user:password@localhost:8000/default?sslmode=disable"\
+  --databend-dsn="http://user:password@localhost:8002"\
   --databend-table="db1.tbl" \
   --data-format="json" \
   --batch-size=100000 \
@@ -64,7 +64,7 @@ Config the config file `config/conf.json`
   "kafkaTopic": "ingest_test",
   "KafkaConsumerGroup": "test",
   "isJsonTransform": true,
-  "databendDSN": "databend://user:password@localhost:8000/default?sslmode=disable",
+  "databendDSN": "http://user:password@localhost:8002",
   "databendTable": "default.kfk_test",
   "batchSize": 1,
   "batchMaxInterval": 5,
@@ -81,7 +81,7 @@ and execute the command
 ## Raw mode
 The raw mode is used to ingest the raw data into databend table, you can use it by setting the `isJsonTransform` to `false`.
 In this mode, we will create a table with the name `databendTable` which columns are `(uuid, koffset,kpartition, raw_data, record_metadata, add_time)` and ingest the raw data into this table.
-The `record_metadata` is the metadata of the kafka record which contains the `topic`, `partition`, `offset`, `create_time`, `key`, and the `add_time` is the time when the record is added into databend.
+The `record_metadata` is the metadata of the kafka record which contains the `topic`, `partition`, `offset`, `key`, `key_encoding`, `create_time`, and the `add_time` is the time when the record is added into databend.
 
 ### Example
 If the kafka json data is:
@@ -101,16 +101,16 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 ## Parameter References
 | Parameter             | Description               | Default           | example                         |
 |-----------------------|---------------------------|-------------------|---------------------------------|
-| kafkaBootstrapServers | kafka bootstrap servers   | "127.0.0.1:64103" | "127.0.0.1:9092,127.0.0.2:9092" |
+| kafkaBootstrapServers | kafka bootstrap servers   | "localhost:9092" | "127.0.0.1:9092,127.0.0.2:9092" |
 | kafkaTopic            | kafka topic               | "test"            | "test"                          |
-| KafkaConsumerGroup    | kafka consumer group      | "kafka-bend-ingest" | "test"                          |
+| KafkaConsumerGroup    | kafka consumer group      | "test-group" | "my-consumer-group"                          |
 |isSASL                 | is sasl                   | false             | true                            |
 |saslUser               | sasl user                 | ""                | "user"                          |
 |saslPassword           | sasl password             | ""                | "password"                      |
 |disableTLS             | disable TLS encryption    | false             | true                            |
 | mockData              | mock data                 | ""                | ""                              |
-| isJsonTransform       | is json transform         | true              | true                            |
-| databendDSN           | databend dsn              | no                | "databend://user:password@localhost:8000/default?sslmode=disable"         |
+| isJsonTransform       | is json transform         | false              | true                            |
+| databendDSN           | databend dsn              | no                | "http://user:password@localhost:8002"         |
 | databendTable         | databend table            | no                | "db1.tbl"                       |
 | batchSize             | batch size                | 1000              | 1000                            |
 | batchMaxInterval      | batch max interval (seconds)       | 30                  | 30                              |
@@ -120,7 +120,7 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | copyForce             | copy force                | false             | false                           |
 | DisableVariantCheck   | disable variant check     | false             | false                           |
 | MinBytes              | min bytes                 | 1024              | 1024                            |
-| MaxBytes              | max bytes                 | 1048576           | 1048576                         |
+| MaxBytes              | max bytes                 | 20971520           | 20971520                         |
 | MaxWait               | max wait time (seconds)   | 10                | 10                              |
 | useReplaceMode       | use replace mode          | false             | false                           |
 | useStreamingLoad     | use streaming load mode (raw mode only) | false | true                           |

@@ -2,16 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"runtime/debug"
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/segmentio/kafka-go"
-	"github.com/segmentio/kafka-go/sasl/plain"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/sirupsen/logrus"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -66,77 +62,67 @@ func (r *MockBatchReader) Close() error {
 }
 
 type KafkaBatchReader struct {
-	kafkaReader      *kafka.Reader
+	consumer         *kafka.Consumer
+	topic            string
 	batchSize        int
 	maxBatchInterval int
 	statsRecorder    *DatabendConsumeStatsRecorder
 }
 
-func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
-	mechanism := plain.Mechanism{
-		Username: cfg.SaslUser,
-		Password: cfg.SaslPassword,
-	}
-
-	dialer := &kafka.Dialer{
-		Timeout:       300 * time.Second,
-		DualStack:     true,
-		SASLMechanism: mechanism,
-	}
-
-	// Only enable TLS if not explicitly disabled
-	if !cfg.DisableTLS {
-		dialer.TLS = &tls.Config{}
-	}
-	kafkaReaderConfig := kafka.ReaderConfig{
-		Brokers:          parseKafkaServers(cfg.KafkaBootstrapServers),
-		GroupID:          cfg.KafkaConsumerGroup,
-		Topic:            cfg.KafkaTopic,
-		MinBytes:         cfg.MinBytes,
-		MaxBytes:         cfg.MaxBytes,
-		ReadBatchTimeout: 2 * time.Duration(cfg.BatchMaxInterval) * time.Second,
-		MaxWait:          time.Duration(cfg.MaxWait) * time.Second,
+func BuildKafkaConfigMap(cfg *config.Config) *kafka.ConfigMap {
+	configMap := &kafka.ConfigMap{
+		"bootstrap.servers":  cfg.KafkaBootstrapServers,
+		"group.id":           cfg.KafkaConsumerGroup,
+		"auto.offset.reset":  "earliest",
+		"enable.auto.commit": false,
+		"fetch.min.bytes":    cfg.MinBytes,
+		"fetch.wait.max.ms":  cfg.MaxWait * 1000,
 	}
 
 	if cfg.IsSASL {
-		kafkaReaderConfig.Dialer = dialer
+		_ = configMap.SetKey("sasl.mechanism", "PLAIN")
+		_ = configMap.SetKey("sasl.username", cfg.SaslUser)
+		_ = configMap.SetKey("sasl.password", cfg.SaslPassword)
+		if cfg.DisableTLS {
+			_ = configMap.SetKey("security.protocol", "SASL_PLAINTEXT")
+		} else {
+			_ = configMap.SetKey("security.protocol", "SASL_SSL")
+		}
+	} else {
+		if cfg.DisableTLS {
+			_ = configMap.SetKey("security.protocol", "PLAINTEXT")
+		} else {
+			_ = configMap.SetKey("security.protocol", "SSL")
+		}
 	}
 
-	kafkaReader := kafka.NewReader(kafkaReaderConfig)
+	return configMap
+}
+
+func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
+	configMap := BuildKafkaConfigMap(cfg)
+
+	consumer, err := kafka.NewConsumer(configMap)
+	if err != nil {
+		logrus.Fatalf("Failed to create Kafka consumer: %v", err)
+	}
+
+	err = consumer.Subscribe(cfg.KafkaTopic, nil)
+	if err != nil {
+		logrus.Fatalf("Failed to subscribe to topic %s: %v", cfg.KafkaTopic, err)
+	}
+
 	return &KafkaBatchReader{
+		consumer:         consumer,
+		topic:            cfg.KafkaTopic,
 		batchSize:        cfg.BatchSize,
 		maxBatchInterval: cfg.BatchMaxInterval,
-		kafkaReader:      kafkaReader,
 		statsRecorder:    NewDatabendConsumeStatsRecorder(),
 	}
 }
 
 func (br *KafkaBatchReader) Close() error {
-	return br.kafkaReader.Close()
-}
-
-func (br *KafkaBatchReader) fetchMessageWithTimeout(ctx context.Context, timeout time.Duration) (*kafka.Message, error) {
-	maxRetries := 5
-	var m kafka.Message
-	var err error
-	retryInterval := time.Second
-	for i := 0; i < maxRetries; i++ {
-		ctx, cancel := context.WithTimeout(ctx, 2*timeout)
-		defer cancel()
-		m, err = br.kafkaReader.FetchMessage(ctx)
-		if err != nil {
-			if ctx.Err() == context.Canceled {
-				logrus.Errorf("Failed to fetch message, attempt %d: %v", i+1, err)
-				time.Sleep(retryInterval)
-				retryInterval <<= 1
-				fmt.Printf("Stack trace: %s\n", debug.Stack())
-				continue
-			}
-			return nil, err
-		}
-		break
-	}
-	return &m, err
+	return br.consumer.Close()
 }
 
 func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
@@ -148,7 +134,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 		firstMessageOffset int64 = -1
 		allByteSize        int
 		batch              = make([]message.MessageData, 0, br.batchSize)
-		allMessages        = make(map[int]*kafka.Message, br.batchSize)
+		allMessages        = make(map[int32]*kafka.Message, br.batchSize)
 		lastMessageTime    = time.Now()
 		noMessageCount     = 0
 		maxEmptyAttempts   = 3
@@ -159,83 +145,89 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 		data := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(string(m.Value), "\t", ""), "\n", ""))
 		return message.MessageData{
 			Data:       data,
-			DataOffset: m.Offset,
-			Partition:  m.Partition,
+			DataOffset: int64(m.TopicPartition.Offset),
+			Partition:  int(m.TopicPartition.Partition),
 			Key:        string(m.Key),
-			CreateTime: m.Time,
+			CreateTime: m.Timestamp,
 		}
 	}
 
 	batchDeadline := time.Now().Add(time.Duration(br.maxBatchInterval) * time.Second)
+	pollTimeoutMs := 500
 
 	for {
-		// check if batch timeout reached and batch is not empty
+		select {
+		case <-ctx.Done():
+			if len(batch) > 0 {
+				break
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
 		if time.Now().After(batchDeadline) && len(batch) > 0 {
 			l.Infof("Batch timeout reached with %d messages", len(batch))
 			break
 		}
 
-		// check if message interval exceeded and batch is not empty
 		if len(batch) > 0 && time.Since(lastMessageTime) > maxMessageInterval {
 			l.Infof("Message interval exceeded %v, ending batch with %d messages",
 				maxMessageInterval, len(batch))
 			break
 		}
 
-		// set timeout based on batch size
-		timeout := time.Duration(br.maxBatchInterval) * time.Second
-		if len(batch) > 0 {
-			// use maxMessageInterval as timeout if batch is not empty
-			timeout = maxMessageInterval
+		ev := br.consumer.Poll(pollTimeoutMs)
+		if ev == nil {
+			if len(batch) > 0 {
+				noMessageCount++
+				if noMessageCount >= maxEmptyAttempts {
+					l.Infof("No new messages after %d attempts, returning current batch",
+						maxEmptyAttempts)
+					break
+				}
+			}
+			continue
 		}
 
-		fetchCtx, cancel := context.WithTimeout(ctx, timeout)
-		m, err := br.kafkaReader.FetchMessage(fetchCtx)
-		cancel()
+		switch e := ev.(type) {
+		case *kafka.Message:
+			noMessageCount = 0
+			lastMessageTime = time.Now()
 
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				if len(batch) > 0 {
-					noMessageCount++
-					if noMessageCount >= maxEmptyAttempts {
-						l.Infof("No new messages after %d attempts, returning current batch",
-							maxEmptyAttempts)
-						break
-					}
-				}
-				continue
+			if firstMessageOffset == -1 {
+				firstMessageOffset = int64(e.TopicPartition.Offset)
 			}
+			lastMessageOffset = int64(e.TopicPartition.Offset)
 
-			if len(batch) > 0 {
-				l.WithError(err).Warn("Error fetching message, processing current batch")
+			batch = append(batch, processMessage(e))
+			allByteSize += len(e.Value)
+			allMessages[e.TopicPartition.Partition] = e
+
+			if len(batch) >= br.batchSize {
+				l.Infof("Batch full with %d messages in %v", len(batch),
+					time.Since(startFetchBatchTime))
 				break
 			}
+			continue
 
-			l.WithError(err).Error("Failed to fetch message with empty batch")
-			return nil, err
+		case kafka.Error:
+			if e.IsFatal() {
+				if len(batch) > 0 {
+					l.WithError(e).Warn("Fatal Kafka error, processing current batch")
+					break
+				}
+				l.WithError(e).Error("Fatal Kafka error with empty batch")
+				return nil, e
+			}
+			l.WithError(e).Warn("Transient Kafka error, continuing")
+			continue
+
+		default:
+			continue
 		}
-
-		// fetch message successfully, reset no message count
-		noMessageCount = 0
-		lastMessageTime = time.Now()
-
-		if firstMessageOffset == -1 {
-			firstMessageOffset = m.Offset
-		}
-		lastMessageOffset = m.Offset
-
-		batch = append(batch, processMessage(&m))
-		allByteSize += len(m.Value)
-		allMessages[m.Partition] = &m
-
-		if len(batch) >= br.batchSize {
-			l.Infof("Batch full with %d messages in %v", len(batch),
-				time.Since(startFetchBatchTime))
-			break
-		}
+		break
 	}
 
-	// record metrics
 	batchDuration := time.Since(startFetchBatchTime)
 	l.WithFields(logrus.Fields{
 		"batch_size":         len(batch),
@@ -243,7 +235,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 		"first_offset":       firstMessageOffset,
 		"last_offset":        lastMessageOffset,
 		"duration_ms":        batchDuration.Milliseconds(),
-		"messages_per_ms":    float64(len(batch)) / float64(batchDuration.Milliseconds()),
+		"messages_per_ms":    float64(len(batch)) / float64(batchDuration.Milliseconds()+1),
 		"last_message_delay": time.Since(lastMessageTime).Milliseconds(),
 	}).Info("Batch complete")
 
@@ -264,7 +256,7 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 	}, nil
 }
 
-func (br *KafkaBatchReader) createCommitFunc(messages map[int]*kafka.Message, l *logrus.Entry) func(context.Context) error {
+func (br *KafkaBatchReader) createCommitFunc(messages map[int32]*kafka.Message, l *logrus.Entry) func(context.Context) error {
 	if len(messages) == 0 {
 		return func(_ context.Context) error { return nil }
 	}
@@ -275,10 +267,10 @@ func (br *KafkaBatchReader) createCommitFunc(messages map[int]*kafka.Message, l 
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				if err := br.kafkaReader.CommitMessages(ctx, *msg); err != nil {
+				if _, err := br.consumer.CommitMessage(msg); err != nil {
 					l.WithError(err).WithFields(logrus.Fields{
 						"partition": partition,
-						"offset":    msg.Offset,
+						"offset":   msg.TopicPartition.Offset,
 					}).Error("Failed to commit message")
 					return fmt.Errorf("commit message failed: %w", err)
 				}

@@ -5,13 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/test-go/testify/assert"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -41,24 +39,31 @@ func prepareConsumeWorkerTest(topic string, partition int) *consumeWorkerTest {
 }
 
 func (tt *consumeWorkerTest) setupKafkaTopic(topic string, partition int) {
-	conn, err := kafka.Dial("tcp", tt.kafkaBrokers[0])
+	admin, err := kafka.NewAdminClient(&kafka.ConfigMap{
+		"bootstrap.servers": tt.kafkaBrokers[0],
+	})
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to create admin client: %v", err))
 	}
-	controller, err := conn.Controller()
-	if err != nil {
-		panic(err)
-	}
-	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(controller.Port)))
-	if err != nil {
-		panic(err.Error())
-	}
-	defer controllerConn.Close()
-	topicConfigs := []kafka.TopicConfig{{Topic: topic, NumPartitions: partition, ReplicationFactor: 1}}
+	defer admin.Close()
 
-	err = controllerConn.CreateTopics(topicConfigs...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	results, err := admin.CreateTopics(ctx, []kafka.TopicSpecification{
+		{
+			Topic:             topic,
+			NumPartitions:     partition,
+			ReplicationFactor: 1,
+		},
+	})
 	if err != nil {
-		log.Printf(err.Error())
+		panic(fmt.Sprintf("Failed to create topic: %v", err))
+	}
+	for _, result := range results {
+		if result.Error.Code() != kafka.ErrNoError && result.Error.Code() != kafka.ErrTopicAlreadyExists {
+			log.Printf("Failed to create topic %s: %v", result.Topic, result.Error)
+		}
 	}
 }
 
@@ -68,35 +73,32 @@ func TestProduceMessage(t *testing.T) {
 
 func produceMessage(topic string, partition int) {
 	tt := prepareConsumeWorkerTest(topic, partition)
-	// Set up a context
-	ctx := context.Background()
 
-	// Set up Kafka writer configuration
-	writerConfig := kafka.WriterConfig{
-		Brokers: tt.kafkaBrokers,
-		Topic:   topic,
-	}
-
-	// Create a Kafka writer
-	writer := kafka.NewWriter(writerConfig)
-
-	// Send a message to Kafka
-	for i := 0; i < 3; i++ {
-		message := kafka.Message{
-			Key:   []byte("name"),
-			Value: []byte("{\"i64\": 10,\"u64\": 30,\"f64\": 20,\"s\": \"hao\",\"s2\": \"hello\",\"a16\":[1],\"a8\":[2],\"d\": \"2011-03-06\",\"t\": \"2016-04-04 11:30:00\"}"),
-		}
-		err := writer.WriteMessages(ctx, message)
-		if err != nil {
-			log.Fatal("Failed to send message:", err)
-		}
-	}
-
-	// Close the Kafka writer
-	err := writer.Close()
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers": tt.kafkaBrokers[0],
+	})
 	if err != nil {
-		log.Fatal("Failed to close writer:", err)
+		log.Fatal("Failed to create producer:", err)
 	}
+	defer producer.Close()
+
+	for i := 0; i < 3; i++ {
+		deliveryChan := make(chan kafka.Event, 1)
+		err = producer.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+			Key:            []byte("name"),
+			Value:          []byte(`{"i64": 10,"u64": 30,"f64": 20,"s": "hao","s2": "hello","a16":[1],"a8":[2],"d": "2011-03-06","t": "2016-04-04 11:30:00"}`),
+		}, deliveryChan)
+		if err != nil {
+			log.Fatal("Failed to produce message:", err)
+		}
+		e := <-deliveryChan
+		m := e.(*kafka.Message)
+		if m.TopicPartition.Error != nil {
+			log.Fatal("Delivery failed:", m.TopicPartition.Error)
+		}
+	}
+	producer.Flush(5000)
 }
 
 func TestConsumeKafka(t *testing.T) {
@@ -126,13 +128,17 @@ func TestConsumeKafka(t *testing.T) {
 		KafkaTopic:            consumeTopic,
 		KafkaBootstrapServers: tt.kafkaBrokers[0],
 		IsJsonTransform:       true,
-		KafkaConsumerGroup:    "test",
+		KafkaConsumerGroup:    fmt.Sprintf("test-%d", time.Now().UnixNano()),
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
 		BatchMaxInterval:      10,
 		DisableVariantCheck:   false,
 		UserStage:             "~",
+		MinBytes:              1024,
+		MaxBytes:              20 * 1024 * 1024,
+		MaxWait:               10,
+		DisableTLS:            true,
 	}
 	ig := NewDatabendIngester(cfg)
 	w := NewConsumeWorker(cfg, "worker1", ig)
@@ -152,9 +158,9 @@ func TestConsumeKafka(t *testing.T) {
 		var a16 []int16
 		var a8 []uint8
 		var d time.Time
-		var t time.Time
-		err = result.Scan(&i64, &u64, &f64, &s, &s2, &a16, &a8, &d, &t)
-		fmt.Println(i64, u64, f64, s, s2, a16, a8, d, t)
+		var tt time.Time
+		err = result.Scan(&i64, &u64, &f64, &s, &s2, &a16, &a8, &d, &tt)
+		fmt.Println(i64, u64, f64, s, s2, a16, a8, d, tt)
 	}
 
 	assert.NotEqual(t, 0, count)
@@ -177,13 +183,17 @@ func TestConsumerWithoutTransform(t *testing.T) {
 		KafkaTopic:            consumeRawTopic,
 		KafkaBootstrapServers: tt.kafkaBrokers[0],
 		IsJsonTransform:       false,
-		KafkaConsumerGroup:    "test",
+		KafkaConsumerGroup:    fmt.Sprintf("test-raw-%d", time.Now().UnixNano()),
 		BatchSize:             10,
 		Workers:               1,
 		DataFormat:            "json",
 		BatchMaxInterval:      10,
 		DisableVariantCheck:   true,
 		UserStage:             "~",
+		MinBytes:              1024,
+		MaxBytes:              20 * 1024 * 1024,
+		MaxWait:               10,
+		DisableTLS:            true,
 	}
 	ig := NewDatabendIngester(cfg)
 	if !cfg.IsJsonTransform {
@@ -224,7 +234,7 @@ func TestConsumerWithoutTransformWithCompressedCopyInto(t *testing.T) {
 		KafkaTopic:                consumeRawTopic,
 		KafkaBootstrapServers:     tt.kafkaBrokers[0],
 		IsJsonTransform:           false,
-		KafkaConsumerGroup:        "test-zstd",
+		KafkaConsumerGroup:        fmt.Sprintf("test-zstd-%d", time.Now().UnixNano()),
 		BatchSize:                 10,
 		Workers:                   1,
 		DataFormat:                "json",
@@ -232,6 +242,10 @@ func TestConsumerWithoutTransformWithCompressedCopyInto(t *testing.T) {
 		DisableVariantCheck:       true,
 		UserStage:                 "~",
 		CopyIntoUploadCompression: true,
+		MinBytes:                  1024,
+		MaxBytes:                  20 * 1024 * 1024,
+		MaxWait:                   10,
+		DisableTLS:                true,
 	}
 	ig := NewDatabendIngester(cfg)
 	err = ig.CreateRawTargetTable()
