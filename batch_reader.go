@@ -229,6 +229,8 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 	}
 
 	batchDuration := time.Since(startFetchBatchTime)
+	batchSizeHist.Observe(float64(len(batch)))
+	batchFillDuration.Observe(batchDuration.Seconds())
 	l.WithFields(logrus.Fields{
 		"batch_size":         len(batch),
 		"bytes_size":         allByteSize,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,6 +51,17 @@ func main() {
 	cfg := parseConfig(configFile)
 	ig := NewDatabendIngester(cfg)
 	defer ig.Close()
+
+	initMetrics()
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		addr := fmt.Sprintf(":%d", cfg.MetricsPort)
+		logrus.Infof("Prometheus metrics available at %s/metrics", addr)
+		if err := http.ListenAndServe(addr, mux); err != nil {
+			logrus.Errorf("metrics server error: %v", err)
+		}
+	}()
 
 	if !cfg.IsJsonTransform {
 		err := ig.CreateRawTargetTable()
@@ -147,6 +160,7 @@ func parseConfig(configFile *string) *config.Config {
 	flag.StringVar(&cfg.UserStage, "user-stage", "~", "user stage")
 	flag.BoolVar(&cfg.UseStreamingLoad, "use-streaming-load", false, "use /v1/streaming_load HTTP endpoint (raw mode only)")
 	flag.BoolVar(&cfg.CopyIntoUploadCompression, "copy-into-upload-compression", true, "enable zstd compression for staged NDJSON files used by COPY INTO")
+	flag.IntVar(&cfg.MetricsPort, "metrics-port", 2112, "Prometheus metrics HTTP port")
 
 	flag.Parse()
 	validateConfig(&cfg)

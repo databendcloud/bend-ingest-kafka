@@ -127,6 +127,53 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | copyIntoUploadCompression | enable zstd compression for staged NDJSON files used by COPY INTO | true | true |
 | userStage             | user external stage name  | ~                 | ~                               |
 | maxRetryDelay         | max retry delay (seconds) | 1800              | 1800                            |
+| metricsPort           | Prometheus metrics HTTP port | 2112           | 2112                            |
+
+## Prometheus Metrics
+
+bend-ingest-kafka exposes a Prometheus-compatible `/metrics` endpoint for monitoring. By default it listens on port `2112`.
+
+```bash
+curl http://localhost:2112/metrics
+```
+
+### Available Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `bend_ingest_kafka_ingest_rows_total` | Counter | Total rows written to Databend |
+| `bend_ingest_kafka_ingest_bytes_total` | Counter | Total bytes written to Databend |
+| `bend_ingest_kafka_consume_rows_total` | Counter | Total rows consumed from Kafka |
+| `bend_ingest_kafka_consume_bytes_total` | Counter | Total bytes consumed from Kafka |
+| `bend_ingest_kafka_upload_stage_duration_seconds` | Histogram | Upload to stage latency |
+| `bend_ingest_kafka_copy_into_duration_seconds` | Histogram | COPY INTO latency |
+| `bend_ingest_kafka_batch_size` | Histogram | Number of messages per batch |
+| `bend_ingest_kafka_batch_fill_duration_seconds` | Histogram | Time to fill a batch from Kafka |
+| `bend_ingest_kafka_ingest_errors_total` | Counter | Total ingest errors |
+
+### Configuration
+
+Add `metricsPort` to your config file to change the default port:
+
+```json
+{
+  "metricsPort": 9090
+}
+```
+
+Or use the command line flag:
+
+```bash
+bend-ingest-kafka --metrics-port=9090
+```
+
+### Grafana Integration
+
+Use these metrics to build dashboards monitoring:
+- Ingest throughput (rows/s, bytes/s)
+- Operation latency (upload stage, copy into)
+- Batch efficiency (size distribution, fill time)
+- Error rate and alerting
 
 ## Kafka Security Protocols
 
@@ -164,3 +211,49 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 - The `copyPurge and copyForce` are used to delete the data in the target table before ingesting the data. More details please refer to [copy](https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table#copy-options).
 - The `useReplaceMode` is used to replace the data in the table, if the data already exists in the table, the new data will replace the old data. But the `useReplaceMode` is only supported when `isJsonTransform` false because it needs to add `koffset` and `kpartition` field in the target table.
 - The `useStreamingLoad` uses Databend's `PUT /v1/streaming_load` HTTP endpoint to ingest data directly without staging. It streams NDJson data via a single multipart HTTP request, which is simpler and faster than the default two-step `uploadToStage + copyInto` path. Only available when `isJsonTransform` is false (raw mode) and cannot be combined with `useReplaceMode`.
+
+## Deployment (systemd)
+
+A systemd service file is provided in `deploy/bend-ingest-kafka.service` for production deployment on Linux.
+
+### Setup
+
+```bash
+# Copy binary and config
+sudo mkdir -p /opt/bend-ingest-kafka
+sudo cp bend-ingest-kafka /opt/bend-ingest-kafka/
+sudo cp config/conf.json /opt/bend-ingest-kafka/config.json
+
+# Create service user
+sudo useradd -r -s /sbin/nologin databend
+
+# Install service
+sudo cp deploy/bend-ingest-kafka.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bend-ingest-kafka
+```
+
+### Operations
+
+```bash
+# Start / Stop / Restart
+sudo systemctl start bend-ingest-kafka
+sudo systemctl stop bend-ingest-kafka
+sudo systemctl restart bend-ingest-kafka
+
+# Check status
+sudo systemctl status bend-ingest-kafka
+
+# View logs
+journalctl -u bend-ingest-kafka -f
+journalctl -u bend-ingest-kafka --since "10 minutes ago"
+```
+
+### Auto-restart Behavior
+
+The service is configured with:
+- `Restart=on-failure` — automatically restarts on crash
+- `RestartSec=5` — waits 5 seconds before restart
+- `StartLimitBurst=5` / `StartLimitIntervalSec=60` — max 5 restarts per minute to avoid restart loops
+- `KillSignal=SIGTERM` — graceful shutdown (finishes current batch before exit)
+- `TimeoutStopSec=30` — allows 30 seconds for graceful shutdown
