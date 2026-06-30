@@ -211,3 +211,49 @@ Use these metrics to build dashboards monitoring:
 - The `copyPurge and copyForce` are used to delete the data in the target table before ingesting the data. More details please refer to [copy](https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table#copy-options).
 - The `useReplaceMode` is used to replace the data in the table, if the data already exists in the table, the new data will replace the old data. But the `useReplaceMode` is only supported when `isJsonTransform` false because it needs to add `koffset` and `kpartition` field in the target table.
 - The `useStreamingLoad` uses Databend's `PUT /v1/streaming_load` HTTP endpoint to ingest data directly without staging. It streams NDJson data via a single multipart HTTP request, which is simpler and faster than the default two-step `uploadToStage + copyInto` path. Only available when `isJsonTransform` is false (raw mode) and cannot be combined with `useReplaceMode`.
+
+## Deployment (systemd)
+
+A systemd service file is provided in `deploy/bend-ingest-kafka.service` for production deployment on Linux.
+
+### Setup
+
+```bash
+# Copy binary and config
+sudo mkdir -p /opt/bend-ingest-kafka
+sudo cp bend-ingest-kafka /opt/bend-ingest-kafka/
+sudo cp config/conf.json /opt/bend-ingest-kafka/config.json
+
+# Create service user
+sudo useradd -r -s /sbin/nologin databend
+
+# Install service
+sudo cp deploy/bend-ingest-kafka.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable bend-ingest-kafka
+```
+
+### Operations
+
+```bash
+# Start / Stop / Restart
+sudo systemctl start bend-ingest-kafka
+sudo systemctl stop bend-ingest-kafka
+sudo systemctl restart bend-ingest-kafka
+
+# Check status
+sudo systemctl status bend-ingest-kafka
+
+# View logs
+journalctl -u bend-ingest-kafka -f
+journalctl -u bend-ingest-kafka --since "10 minutes ago"
+```
+
+### Auto-restart Behavior
+
+The service is configured with:
+- `Restart=on-failure` — automatically restarts on crash
+- `RestartSec=5` — waits 5 seconds before restart
+- `StartLimitBurst=5` / `StartLimitIntervalSec=60` — max 5 restarts per minute to avoid restart loops
+- `KillSignal=SIGTERM` — graceful shutdown (finishes current batch before exit)
+- `TimeoutStopSec=30` — allows 30 seconds for graceful shutdown

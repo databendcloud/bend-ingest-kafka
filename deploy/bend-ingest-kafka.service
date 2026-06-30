@@ -1,0 +1,33 @@
+[Unit]
+Description=Bend Ingest Kafka - Kafka to Databend data ingestion service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=databend
+Group=databend
+WorkingDirectory=/opt/bend-ingest-kafka
+ExecStart=/opt/bend-ingest-kafka/bend-ingest-kafka -f /opt/bend-ingest-kafka/config.json
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Graceful shutdown
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bend-ingest-kafka
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
