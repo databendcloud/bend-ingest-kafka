@@ -677,8 +677,54 @@ func (ig *databendIngester) replaceInto(stage *godatabend.StageLocation) error {
 }
 
 func (ig *databendIngester) CreateRawTargetTable() error {
-	// offset and partition is the key word of databend, so we need to use koffset and kpartition instead
 	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (uuid String, koffset BIGINT, kpartition int, raw_data json, record_metadata json, add_time timestamp)", ig.databendIngesterCfg.DatabendTable)
 
-	return execute(ig.db, createTableSQL)
+	if err := execute(ig.db, createTableSQL); err != nil {
+		return err
+	}
+
+	return ig.validateRawTableSchema()
+}
+
+func (ig *databendIngester) validateRawTableSchema() error {
+	requiredColumns := map[string]bool{
+		"uuid":            false,
+		"koffset":         false,
+		"kpartition":      false,
+		"raw_data":        false,
+		"record_metadata": false,
+		"add_time":        false,
+	}
+
+	rows, err := ig.db.Query(fmt.Sprintf("DESC %s", ig.databendIngesterCfg.DatabendTable))
+	if err != nil {
+		return fmt.Errorf("failed to describe table %s: %w", ig.databendIngesterCfg.DatabendTable, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var field, dataType, null, defaultVal, extra string
+		if err := rows.Scan(&field, &dataType, &null, &defaultVal, &extra); err != nil {
+			return fmt.Errorf("failed to scan column info: %w", err)
+		}
+		if _, ok := requiredColumns[field]; ok {
+			requiredColumns[field] = true
+		}
+	}
+
+	var missing []string
+	for col, found := range requiredColumns {
+		if !found {
+			missing = append(missing, col)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("table %s exists but is missing required columns for raw mode: %v. "+
+			"Expected columns: (uuid, koffset, kpartition, raw_data, record_metadata, add_time). "+
+			"Please drop or rename the existing table, or use a different table name",
+			ig.databendIngesterCfg.DatabendTable, missing)
+	}
+
+	return nil
 }
