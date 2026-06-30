@@ -104,6 +104,8 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 		}
 		endConsumeTime := time.Now()
 		c.statsRecorder.RecordMetric(allByteSize, len(batch.Messages))
+		consumeRowsTotal.Add(float64(len(batch.Messages)))
+		consumeBytesTotal.Add(float64(allByteSize))
 		stats := c.statsRecorder.Stats(time.Since(startCommitTime))
 		log.Printf("consume %d rows (%f rows/s), %d bytes (%f bytes/s) in %d ms", len(batch.Messages), stats.RowsPerSecond, allByteSize, stats.BytesPerSecond, endConsumeTime.Sub(startCommitTime).Milliseconds())
 

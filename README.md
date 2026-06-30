@@ -127,6 +127,53 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | copyIntoUploadCompression | enable zstd compression for staged NDJSON files used by COPY INTO | true | true |
 | userStage             | user external stage name  | ~                 | ~                               |
 | maxRetryDelay         | max retry delay (seconds) | 1800              | 1800                            |
+| metricsPort           | Prometheus metrics HTTP port | 2112           | 2112                            |
+
+## Prometheus Metrics
+
+bend-ingest-kafka exposes a Prometheus-compatible `/metrics` endpoint for monitoring. By default it listens on port `2112`.
+
+```bash
+curl http://localhost:2112/metrics
+```
+
+### Available Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `bend_ingest_kafka_ingest_rows_total` | Counter | Total rows written to Databend |
+| `bend_ingest_kafka_ingest_bytes_total` | Counter | Total bytes written to Databend |
+| `bend_ingest_kafka_consume_rows_total` | Counter | Total rows consumed from Kafka |
+| `bend_ingest_kafka_consume_bytes_total` | Counter | Total bytes consumed from Kafka |
+| `bend_ingest_kafka_upload_stage_duration_seconds` | Histogram | Upload to stage latency |
+| `bend_ingest_kafka_copy_into_duration_seconds` | Histogram | COPY INTO latency |
+| `bend_ingest_kafka_batch_size` | Histogram | Number of messages per batch |
+| `bend_ingest_kafka_batch_fill_duration_seconds` | Histogram | Time to fill a batch from Kafka |
+| `bend_ingest_kafka_ingest_errors_total` | Counter | Total ingest errors |
+
+### Configuration
+
+Add `metricsPort` to your config file to change the default port:
+
+```json
+{
+  "metricsPort": 9090
+}
+```
+
+Or use the command line flag:
+
+```bash
+bend-ingest-kafka --metrics-port=9090
+```
+
+### Grafana Integration
+
+Use these metrics to build dashboards monitoring:
+- Ingest throughput (rows/s, bytes/s)
+- Operation latency (upload stage, copy into)
+- Batch efficiency (size distribution, fill time)
+- Error rate and alerting
 
 ## Kafka Security Protocols
 

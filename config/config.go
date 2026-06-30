@@ -66,6 +66,9 @@ type Config struct {
 	// Unit: seconds
 	// Default: 1800 (30 minutes)
 	MaxRetryDelay int `json:"maxRetryDelay" default:"1800"`
+
+	// MetricsPort is the port for the Prometheus metrics HTTP server.
+	MetricsPort int `json:"metricsPort" default:"2112"`
 }
 
 func LoadConfig(configFile *string) (*Config, error) {

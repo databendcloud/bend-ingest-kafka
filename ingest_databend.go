@@ -407,9 +407,12 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 		if err != nil {
 			l.Errorf("streaming load failed: %v, lastOffset is: %d, partition is %d\n", err,
 				messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
+			ingestErrors.Inc()
 			return err
 		}
 		ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
+		ingestRowsTotal.Add(float64(len(batchJsonData)))
+		ingestBytesTotal.Add(float64(bytesSize))
 		stats := ig.statsRecorder.Stats(time.Since(startTime))
 		log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s) in %s", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond, time.Since(startTime))
 		return nil
@@ -418,6 +421,7 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 	fileName, bytesSize, err := ig.generateNDJsonFile(batchJsonData)
 	if err != nil {
 		l.Errorf("generate NDJson file failed: %v,lastOffset is %d\n", err, messageBatch.LastMessageOffset)
+		ingestErrors.Inc()
 		return err
 	}
 
@@ -425,6 +429,7 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 	if err != nil {
 		l.Errorf("upload to stage failed: %v, lastOffset is: %d, partition is %d\n", err,
 			messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
+		ingestErrors.Inc()
 		return err
 	}
 
@@ -432,9 +437,12 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 	if err != nil {
 		l.Errorf("copy into failed: %v, lastOffset is: %d, partition is %d\n", err,
 			messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
+		ingestErrors.Inc()
 		return err
 	}
 	ig.statsRecorder.RecordMetric(bytesSize, len(batchJsonData))
+	ingestRowsTotal.Add(float64(len(batchJsonData)))
+	ingestBytesTotal.Add(float64(bytesSize))
 	stats := ig.statsRecorder.Stats(time.Since(startTime))
 	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s) in %s", len(batchJsonData), stats.RowsPerSecond, bytesSize, stats.BytesPerSecond, time.Since(startTime))
 	return nil
@@ -603,6 +611,7 @@ func (ig *databendIngester) uploadToStage(fileName string) (*godatabend.StageLoc
 	}
 
 	logrus.Infof("upload to stage %s, cost: %s", stage.String(), time.Since(startTime))
+	uploadStageDuration.Observe(time.Since(startTime).Seconds())
 	return stage, nil
 }
 
@@ -643,6 +652,7 @@ func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
 		return errors.Wrap(ErrCopyIntoFailed, err.Error())
 	}
 	logrus.Infof("copy into %s, cost: %s", ig.databendIngesterCfg.DatabendTable, time.Since(startTime))
+	copyIntoDuration.Observe(time.Since(startTime).Seconds())
 	return nil
 }
 
