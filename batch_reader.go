@@ -79,12 +79,12 @@ func BuildKafkaConfigMap(cfg *config.Config) *kafka.ConfigMap {
 		"fetch.wait.max.ms":  cfg.MaxWait * 1000,
 	}
 
-	if cfg.EnableAutoRebalance {
+	if cfg.EnableRebalanceOptimization {
 		// Pick up topic changes (e.g. added partitions) without a restart and
 		// rebalance the consumer group accordingly.
 		strategy := cfg.PartitionAssignmentStrategy
 		if strategy == "" {
-			strategy = "cooperative-sticky"
+			strategy = "range,roundrobin"
 		}
 		_ = configMap.SetKey("partition.assignment.strategy", strategy)
 
@@ -124,7 +124,7 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 	}
 
 	var rebalanceCb kafka.RebalanceCb
-	if cfg.EnableAutoRebalance {
+	if cfg.EnableRebalanceOptimization {
 		rebalanceCb = logRebalance
 	}
 	err = consumer.Subscribe(cfg.KafkaTopic, rebalanceCb)
@@ -155,7 +155,6 @@ func logRebalance(c *kafka.Consumer, event kafka.Event) error {
 	}
 	return nil
 }
-
 
 func (br *KafkaBatchReader) Close() error {
 	return br.consumer.Close()
@@ -308,7 +307,7 @@ func (br *KafkaBatchReader) createCommitFunc(messages map[int32]*kafka.Message, 
 				if _, err := br.consumer.CommitMessage(msg); err != nil {
 					l.WithError(err).WithFields(logrus.Fields{
 						"partition": partition,
-						"offset":   msg.TopicPartition.Offset,
+						"offset":    msg.TopicPartition.Offset,
 					}).Error("Failed to commit message")
 					return fmt.Errorf("commit message failed: %w", err)
 				}

@@ -128,6 +128,43 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | userStage             | user external stage name  | ~                 | ~                               |
 | maxRetryDelay         | max retry delay (seconds) | 1800              | 1800                            |
 | metricsPort           | Prometheus metrics HTTP port | 2112           | 2112                            |
+| enableRebalanceOptimization | enable faster partition-change detection, explicit assignment strategy, and rebalance logging | true | true |
+| partitionAssignmentStrategy | ordered partition assignment strategy list | "range,roundrobin" | "range,roundrobin" |
+| topicMetadataRefreshIntervalMs | topic metadata refresh interval (ms); lower values detect added partitions faster | 60000 | 60000 |
+
+## Rebalance Optimization
+
+Kafka consumer group rebalancing remains enabled whenever the consumer uses a
+topic subscription. By default, bend-ingest-kafka optimizes that behavior to
+detect added partitions faster, apply an explicit assignment strategy, and log
+assignment and revocation events.
+
+When partitions are added to a topic (for example, scaling from 36 to 144), the
+running consumers detect the new partitions within `topicMetadataRefreshIntervalMs`
+and rejoin the group to take on the new assignment. Rebalance events are written
+to the logs with the `kafka_rebalance` field.
+
+- `enableRebalanceOptimization`: controls the faster metadata refresh, configured assignor list, and rebalance logging. Disabling it restores librdkafka defaults; it does not disable consumer group rebalancing.
+- `partitionAssignmentStrategy`: ordered assignor list. The default `range,roundrobin` matches librdkafka's legacy defaults and supports rolling upgrades. To use incremental cooperative rebalancing, set it to `cooperative-sticky` only after every consumer in the group supports that assignor.
+- `topicMetadataRefreshIntervalMs`: how often the consumer refreshes topic metadata. Lower it for faster partition-change detection.
+
+**Config file:**
+```json
+{
+  "enableRebalanceOptimization": true,
+  "partitionAssignmentStrategy": "range,roundrobin",
+  "topicMetadataRefreshIntervalMs": 60000
+}
+```
+
+**Command line:**
+```bash
+bend-ingest-kafka \
+  --enable-rebalance-optimization=true \
+  --partition-assignment-strategy="range,roundrobin" \
+  --topic-metadata-refresh-interval-ms=60000
+```
+
 
 ## Prometheus Metrics
 

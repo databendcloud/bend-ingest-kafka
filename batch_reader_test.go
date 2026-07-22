@@ -35,28 +35,28 @@ func TestBuildKafkaConfigMap_PlainText(t *testing.T) {
 	assert.Equal(t, false, getConfigValue(cm, "enable.auto.commit"))
 }
 
-func TestBuildKafkaConfigMap_AutoRebalance(t *testing.T) {
+func TestBuildKafkaConfigMap_RebalanceOptimization(t *testing.T) {
 	cfg := &config.Config{
 		KafkaBootstrapServers:          "localhost:9092",
 		KafkaConsumerGroup:             "test-group",
 		DisableTLS:                     true,
-		EnableAutoRebalance:            true,
-		PartitionAssignmentStrategy:    "cooperative-sticky",
+		EnableRebalanceOptimization:    true,
+		PartitionAssignmentStrategy:    "range,roundrobin",
 		TopicMetadataRefreshIntervalMs: 30000,
 	}
 
 	cm := BuildKafkaConfigMap(cfg)
 
-	assert.Equal(t, "cooperative-sticky", getConfigValue(cm, "partition.assignment.strategy"))
+	assert.Equal(t, "range,roundrobin", getConfigValue(cm, "partition.assignment.strategy"))
 	assert.Equal(t, 30000, getConfigValue(cm, "topic.metadata.refresh.interval.ms"))
 }
 
-func TestBuildKafkaConfigMap_AutoRebalanceDisabled(t *testing.T) {
+func TestBuildKafkaConfigMap_RebalanceOptimizationDisabled(t *testing.T) {
 	cfg := &config.Config{
-		KafkaBootstrapServers: "localhost:9092",
-		KafkaConsumerGroup:    "test-group",
-		DisableTLS:            true,
-		EnableAutoRebalance:   false,
+		KafkaBootstrapServers:       "localhost:9092",
+		KafkaConsumerGroup:          "test-group",
+		DisableTLS:                  true,
+		EnableRebalanceOptimization: false,
 	}
 
 	cm := BuildKafkaConfigMap(cfg)

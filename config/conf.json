@@ -23,7 +23,7 @@
   "useReplaceMode": false,
   "copyIntoUploadCompression": true,
   "maxRetryDelay": 1800,
-  "enableAutoRebalance": true,
-  "partitionAssignmentStrategy": "cooperative-sticky",
+  "enableRebalanceOptimization": true,
+  "partitionAssignmentStrategy": "range,roundrobin",
   "topicMetadataRefreshIntervalMs": 60000
 }

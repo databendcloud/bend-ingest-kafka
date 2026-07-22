@@ -161,12 +161,11 @@ func parseConfig(configFile *string) *config.Config {
 	flag.BoolVar(&cfg.UseStreamingLoad, "use-streaming-load", false, "use /v1/streaming_load HTTP endpoint (raw mode only)")
 	flag.BoolVar(&cfg.CopyIntoUploadCompression, "copy-into-upload-compression", true, "enable zstd compression for staged NDJSON files used by COPY INTO")
 	flag.IntVar(&cfg.MetricsPort, "metrics-port", 2112, "Prometheus metrics HTTP port")
-	flag.BoolVar(&cfg.EnableAutoRebalance, "enable-auto-rebalance", true, "enable automatic consumer group rebalancing to pick up topic changes such as added partitions")
-	flag.StringVar(&cfg.PartitionAssignmentStrategy, "partition-assignment-strategy", "cooperative-sticky", "partition assignment strategy: cooperative-sticky, range, roundrobin")
+	flag.BoolVar(&cfg.EnableRebalanceOptimization, "enable-rebalance-optimization", true, "enable faster partition-change detection, explicit assignment strategy, and rebalance logging")
+	flag.StringVar(&cfg.PartitionAssignmentStrategy, "partition-assignment-strategy", "range,roundrobin", "partition assignment strategy list, for example: range,roundrobin")
 	flag.IntVar(&cfg.TopicMetadataRefreshIntervalMs, "topic-metadata-refresh-interval-ms", 60000, "topic metadata refresh interval in ms; lower values detect added partitions faster")
 
 	flag.Parse()
 	validateConfig(&cfg)
 	return &cfg
 }
-
