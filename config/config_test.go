@@ -83,6 +83,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, 10, cfg.MaxWait)
 	assert.Equal(t, 1800, cfg.MaxRetryDelay)
 	assert.Equal(t, true, cfg.CopyIntoUploadCompression)
+	assert.Equal(t, true, cfg.EnableAutoRebalance)
+	assert.Equal(t, "cooperative-sticky", cfg.PartitionAssignmentStrategy)
+	assert.Equal(t, 60000, cfg.TopicMetadataRefreshIntervalMs)
 }
 
 func TestLoadConfigFileNotFound(t *testing.T) {

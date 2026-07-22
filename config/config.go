@@ -69,6 +69,29 @@ type Config struct {
 
 	// MetricsPort is the port for the Prometheus metrics HTTP server.
 	MetricsPort int `json:"metricsPort" default:"2112"`
+
+	// EnableAutoRebalance enables automatic consumer group rebalancing so that
+	// changes to the topic (for example, adding partitions) are picked up without
+	// restarting the process. Enabled by default.
+	EnableAutoRebalance bool `json:"enableAutoRebalance" default:"true"`
+
+	// PartitionAssignmentStrategy sets the consumer group partition assignment
+	// strategy. Only used when EnableAutoRebalance is true.
+	// "cooperative-sticky" performs incremental rebalancing that minimizes
+	// partition movement when the assignment changes.
+	// Other valid values: "range", "roundrobin".
+	//
+	// Default: cooperative-sticky
+	PartitionAssignmentStrategy string `json:"partitionAssignmentStrategy" default:"cooperative-sticky"`
+
+	// TopicMetadataRefreshIntervalMs controls how often the consumer refreshes
+	// topic metadata to detect changes such as newly added partitions. A lower
+	// value makes partition expansion picked up faster. Only used when
+	// EnableAutoRebalance is true.
+	// Unit: milliseconds
+	//
+	// Default: 60000 (1 minute)
+	TopicMetadataRefreshIntervalMs int `json:"topicMetadataRefreshIntervalMs" default:"60000"`
 }
 
 func LoadConfig(configFile *string) (*Config, error) {
