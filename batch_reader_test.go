@@ -35,6 +35,36 @@ func TestBuildKafkaConfigMap_PlainText(t *testing.T) {
 	assert.Equal(t, false, getConfigValue(cm, "enable.auto.commit"))
 }
 
+func TestBuildKafkaConfigMap_RebalanceOptimization(t *testing.T) {
+	cfg := &config.Config{
+		KafkaBootstrapServers:          "localhost:9092",
+		KafkaConsumerGroup:             "test-group",
+		DisableTLS:                     true,
+		EnableRebalanceOptimization:    true,
+		PartitionAssignmentStrategy:    "range,roundrobin",
+		TopicMetadataRefreshIntervalMs: 30000,
+	}
+
+	cm := BuildKafkaConfigMap(cfg)
+
+	assert.Equal(t, "range,roundrobin", getConfigValue(cm, "partition.assignment.strategy"))
+	assert.Equal(t, 30000, getConfigValue(cm, "topic.metadata.refresh.interval.ms"))
+}
+
+func TestBuildKafkaConfigMap_RebalanceOptimizationDisabled(t *testing.T) {
+	cfg := &config.Config{
+		KafkaBootstrapServers:       "localhost:9092",
+		KafkaConsumerGroup:          "test-group",
+		DisableTLS:                  true,
+		EnableRebalanceOptimization: false,
+	}
+
+	cm := BuildKafkaConfigMap(cfg)
+
+	assert.Nil(t, getConfigValue(cm, "partition.assignment.strategy"))
+	assert.Nil(t, getConfigValue(cm, "topic.metadata.refresh.interval.ms"))
+}
+
 func TestBuildKafkaConfigMap_SASL_SSL(t *testing.T) {
 	cfg := &config.Config{
 		KafkaBootstrapServers: "broker1:9093,broker2:9093",

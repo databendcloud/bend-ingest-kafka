@@ -79,6 +79,22 @@ func BuildKafkaConfigMap(cfg *config.Config) *kafka.ConfigMap {
 		"fetch.wait.max.ms":  cfg.MaxWait * 1000,
 	}
 
+	if cfg.EnableRebalanceOptimization {
+		// Pick up topic changes (e.g. added partitions) without a restart and
+		// rebalance the consumer group accordingly.
+		strategy := cfg.PartitionAssignmentStrategy
+		if strategy == "" {
+			strategy = "range,roundrobin"
+		}
+		_ = configMap.SetKey("partition.assignment.strategy", strategy)
+
+		refreshMs := cfg.TopicMetadataRefreshIntervalMs
+		if refreshMs <= 0 {
+			refreshMs = 60000
+		}
+		_ = configMap.SetKey("topic.metadata.refresh.interval.ms", refreshMs)
+	}
+
 	if cfg.IsSASL {
 		_ = configMap.SetKey("sasl.mechanism", "PLAIN")
 		_ = configMap.SetKey("sasl.username", cfg.SaslUser)
@@ -107,7 +123,11 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 		logrus.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 
-	err = consumer.Subscribe(cfg.KafkaTopic, nil)
+	var rebalanceCb kafka.RebalanceCb
+	if cfg.EnableRebalanceOptimization {
+		rebalanceCb = logRebalance
+	}
+	err = consumer.Subscribe(cfg.KafkaTopic, rebalanceCb)
 	if err != nil {
 		logrus.Fatalf("Failed to subscribe to topic %s: %v", cfg.KafkaTopic, err)
 	}
@@ -119,6 +139,21 @@ func NewKafkaBatchReader(cfg *config.Config) *KafkaBatchReader {
 		maxBatchInterval: cfg.BatchMaxInterval,
 		statsRecorder:    NewDatabendConsumeStatsRecorder(),
 	}
+}
+
+// logRebalance logs consumer group rebalance events (partition assignment and
+// revocation). It intentionally does not call Assign/Unassign so that the
+// confluent-kafka-go library performs the assignment itself, using the
+// configured partition.assignment.strategy.
+func logRebalance(c *kafka.Consumer, event kafka.Event) error {
+	l := logrus.WithField("kafka_rebalance", true)
+	switch e := event.(type) {
+	case kafka.AssignedPartitions:
+		l.Infof("Partitions assigned: %v", e.Partitions)
+	case kafka.RevokedPartitions:
+		l.Infof("Partitions revoked: %v", e.Partitions)
+	}
+	return nil
 }
 
 func (br *KafkaBatchReader) Close() error {
@@ -272,7 +307,7 @@ func (br *KafkaBatchReader) createCommitFunc(messages map[int32]*kafka.Message, 
 				if _, err := br.consumer.CommitMessage(msg); err != nil {
 					l.WithError(err).WithFields(logrus.Fields{
 						"partition": partition,
-						"offset":   msg.TopicPartition.Offset,
+						"offset":    msg.TopicPartition.Offset,
 					}).Error("Failed to commit message")
 					return fmt.Errorf("commit message failed: %w", err)
 				}

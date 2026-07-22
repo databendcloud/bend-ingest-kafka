@@ -69,6 +69,29 @@ type Config struct {
 
 	// MetricsPort is the port for the Prometheus metrics HTTP server.
 	MetricsPort int `json:"metricsPort" default:"2112"`
+
+	// EnableRebalanceOptimization configures faster partition-change detection,
+	// an explicit assignment strategy, and rebalance event logging. Disabling it
+	// restores the librdkafka defaults; consumer group rebalancing remains enabled.
+	EnableRebalanceOptimization bool `json:"enableRebalanceOptimization" default:"true"`
+
+	// PartitionAssignmentStrategy sets the consumer group partition assignment
+	// strategy list. Only used when EnableRebalanceOptimization is true. The
+	// default preserves librdkafka's legacy assignors so rolling upgrades remain
+	// compatible. Use "cooperative-sticky" only after every consumer in the group
+	// supports it.
+	//
+	// Default: range,roundrobin
+	PartitionAssignmentStrategy string `json:"partitionAssignmentStrategy" default:"range,roundrobin"`
+
+	// TopicMetadataRefreshIntervalMs controls how often the consumer refreshes
+	// topic metadata to detect changes such as newly added partitions. A lower
+	// value makes partition expansion picked up faster. Only used when
+	// EnableRebalanceOptimization is true.
+	// Unit: milliseconds
+	//
+	// Default: 60000 (1 minute)
+	TopicMetadataRefreshIntervalMs int `json:"topicMetadataRefreshIntervalMs" default:"60000"`
 }
 
 func LoadConfig(configFile *string) (*Config, error) {
@@ -87,11 +110,11 @@ func LoadConfig(configFile *string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config file %q failed: %w", path, err)
 	}
+	defaults.SetDefaults(&conf)
 	err = json.Unmarshal(confByte, &conf)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal config file %q failed: %w", path, err)
 	}
-	defaults.SetDefaults(&conf)
 
 	return &conf, nil
 }

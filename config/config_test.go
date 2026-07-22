@@ -83,6 +83,26 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, 10, cfg.MaxWait)
 	assert.Equal(t, 1800, cfg.MaxRetryDelay)
 	assert.Equal(t, true, cfg.CopyIntoUploadCompression)
+	assert.Equal(t, true, cfg.EnableRebalanceOptimization)
+	assert.Equal(t, "range,roundrobin", cfg.PartitionAssignmentStrategy)
+	assert.Equal(t, 60000, cfg.TopicMetadataRefreshIntervalMs)
+}
+
+func TestLoadConfigExplicitFalse(t *testing.T) {
+	content := `{"enableRebalanceOptimization": false}`
+
+	tmpFile, err := os.CreateTemp("", "config-explicit-false-*.json")
+	assert.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	_, err = tmpFile.WriteString(content)
+	assert.NoError(t, err)
+	assert.NoError(t, tmpFile.Close())
+
+	path := tmpFile.Name()
+	cfg, err := LoadConfig(&path)
+	assert.NoError(t, err)
+	assert.False(t, cfg.EnableRebalanceOptimization)
 }
 
 func TestLoadConfigFileNotFound(t *testing.T) {

@@ -22,5 +22,8 @@
   "maxWait": 10,
   "useReplaceMode": false,
   "copyIntoUploadCompression": true,
-  "maxRetryDelay": 1800
+  "maxRetryDelay": 1800,
+  "enableRebalanceOptimization": true,
+  "partitionAssignmentStrategy": "range,roundrobin",
+  "topicMetadataRefreshIntervalMs": 60000
 }

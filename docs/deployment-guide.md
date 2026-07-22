@@ -52,7 +52,10 @@ Edit `/opt/bend-ingest-kafka/config.json`:
   "batchMaxInterval": 30,
   "dataFormat": "json",
   "workers": 2,
-  "metricsPort": 2112
+  "metricsPort": 2112,
+  "enableRebalanceOptimization": true,
+  "partitionAssignmentStrategy": "range,roundrobin",
+  "topicMetadataRefreshIntervalMs": 60000
 }
 ```
 
@@ -60,6 +63,28 @@ Key parameters to tune for production:
 - `batchSize`: larger batches = higher throughput, higher latency (recommended: 5000-10000)
 - `batchMaxInterval`: max seconds to wait before flushing an incomplete batch
 - `workers`: number of parallel consumers (match Kafka partition count for best throughput)
+
+### Rebalance Optimization
+
+Kafka consumer group rebalancing remains enabled whenever the consumer uses a
+topic subscription. By default, bend-ingest-kafka optimizes that behavior to
+detect added partitions faster, apply an explicit assignment strategy, and log
+assignment and revocation events.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `enableRebalanceOptimization` | `true` | Configure faster metadata refresh, the assignor list, and rebalance logging. Disabling it restores librdkafka defaults but does not disable consumer group rebalancing. |
+| `partitionAssignmentStrategy` | `range,roundrobin` | Ordered assignor list matching librdkafka's legacy defaults for rolling-upgrade compatibility. To use incremental cooperative rebalancing, set it to `cooperative-sticky` only after every consumer in the group supports that assignor. |
+| `topicMetadataRefreshIntervalMs` | `60000` | How often (in ms) the consumer refreshes topic metadata to detect changes such as newly added partitions. A lower value detects partition expansion faster. |
+
+These can also be set via CLI flags: `-enable-rebalance-optimization`,
+`-partition-assignment-strategy`, and `-topic-metadata-refresh-interval-ms`.
+
+When partitions are added to a topic (for example, scaling from 36 to 144),
+the running consumers detect the new partitions within
+`topicMetadataRefreshIntervalMs` and rejoin the group to take on the new
+assignment. Partition assignment and revocation events are written to the logs
+(look for `kafka_rebalance`).
 
 ## systemd Service
 
@@ -223,3 +248,11 @@ If Kafka consumer lag keeps increasing:
 2. Increase `batchSize` to reduce per-batch overhead
 3. Check Databend performance (upload/copy latency in metrics)
 4. Consider scaling horizontally with multiple instances (each with unique consumer group or partitions)
+
+### New partitions not being consumed
+
+If partitions were added to the topic but the consumer is not reading from them:
+1. Confirm `enableRebalanceOptimization` is `true` (the default).
+2. Check the logs for `kafka_rebalance` entries; a rebalance should occur within `topicMetadataRefreshIntervalMs` after partitions are added.
+3. Lower `topicMetadataRefreshIntervalMs` if faster detection is needed.
+4. Increase `workers` so there are enough consumer instances to cover the new partition count.
