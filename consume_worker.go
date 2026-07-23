@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"runtime/debug"
 	"time"
 
 	"github.com/avast/retry-go"
@@ -85,33 +84,50 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 	}
 
 	l.Debug("DEBUG: commit")
-	// guarantee the commit is successful before moving to the next batch
-	maxRetries := 500
+	// Retry the commit with a capped backoff, and never block the poll loop
+	// for longer than librdkafka's max.poll.interval.ms (default 300s):
+	// a member that stops polling is kicked out of the group, after which
+	// every commit fails with "Unknown member" and the worker would be stuck
+	// in this loop forever.
+	const (
+		commitMaxRetries = 8
+		commitMaxBackoff = 30 * time.Second
+	)
 	retryInterval := time.Second
 	startCommitTime := time.Now()
-	for i := 0; i < maxRetries; i++ {
+	for i := 0; i < commitMaxRetries; i++ {
 		ctx := context.Background()
 		err = batch.CommitFunc(ctx)
-		if err != nil {
-			l.Errorf("Failed to commit messages at %d, attempt %d: %v", batch.LastMessageOffset, i+1, err)
-			time.Sleep(retryInterval)
-			retryInterval <<= 1
-			fmt.Printf("Stack trace: %s\n", debug.Stack())
-			continue
+		if err == nil {
+			break
 		}
-		if i == 500 {
-			panic("Failed to commit messages after 500 attempts, need panic")
+		l.Errorf("Failed to commit messages at %d, attempt %d/%d: %v", batch.LastMessageOffset, i+1, commitMaxRetries, err)
+		if i == commitMaxRetries-1 {
+			// No point sleeping after the final attempt; exit the loop and panic.
+			break
 		}
-		endConsumeTime := time.Now()
-		c.statsRecorder.RecordMetric(allByteSize, len(batch.Messages))
-		consumeRowsTotal.Add(float64(len(batch.Messages)))
-		consumeBytesTotal.Add(float64(allByteSize))
-		stats := c.statsRecorder.Stats(time.Since(startCommitTime))
-		log.Printf("consume %d rows (%f rows/s), %d bytes (%f bytes/s) in %d ms", len(batch.Messages), stats.RowsPerSecond, allByteSize, stats.BytesPerSecond, endConsumeTime.Sub(startCommitTime).Milliseconds())
-
-		log.Printf("process %d rows (%f rows/s) in %d ms", len(batch.Messages), float64(len(batch.Messages))/time.Since(batchStartTime).Seconds(), time.Since(batchStartTime).Milliseconds())
-		return nil
+		time.Sleep(retryInterval)
+		retryInterval *= 2
+		if retryInterval > commitMaxBackoff {
+			retryInterval = commitMaxBackoff
+		}
 	}
+	if err != nil {
+		// Give up and crash: the process restarts, rejoins the group, and
+		// re-consumes this batch from the last committed offset
+		// (at-least-once). The retry budget above is kept well below the
+		// 300s max.poll.interval.ms limit.
+		panic(fmt.Sprintf("Failed to commit messages at %d after %d attempts: %v", batch.LastMessageOffset, commitMaxRetries, err))
+	}
+
+	endConsumeTime := time.Now()
+	c.statsRecorder.RecordMetric(allByteSize, len(batch.Messages))
+	consumeRowsTotal.Add(float64(len(batch.Messages)))
+	consumeBytesTotal.Add(float64(allByteSize))
+	stats := c.statsRecorder.Stats(time.Since(startCommitTime))
+	log.Printf("consume %d rows (%f rows/s), %d bytes (%f bytes/s) in %d ms", len(batch.Messages), stats.RowsPerSecond, allByteSize, stats.BytesPerSecond, endConsumeTime.Sub(startCommitTime).Milliseconds())
+
+	log.Printf("process %d rows (%f rows/s) in %d ms", len(batch.Messages), float64(len(batch.Messages))/time.Since(batchStartTime).Seconds(), time.Since(batchStartTime).Milliseconds())
 	return nil
 }
 
