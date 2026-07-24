@@ -265,3 +265,28 @@ func TestCreateCommitFuncContextCancelled(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, context.Canceled, err)
 }
+
+func TestIsMembershipError(t *testing.T) {
+	membershipErrs := []kafka.ErrorCode{
+		kafka.ErrUnknownMemberID,
+		kafka.ErrIllegalGeneration,
+		kafka.ErrRebalanceInProgress,
+	}
+	for _, code := range membershipErrs {
+		err := kafka.NewError(code, "test", false)
+		assert.True(t, isMembershipError(err), "code %v should be a membership error", code)
+	}
+
+	nonMembershipErrs := []kafka.ErrorCode{
+		kafka.ErrBrokerNotAvailable,
+		kafka.ErrNetworkException,
+		kafka.ErrUnknownTopicOrPart,
+	}
+	for _, code := range nonMembershipErrs {
+		err := kafka.NewError(code, "test", false)
+		assert.False(t, isMembershipError(err), "code %v should not be a membership error", code)
+	}
+
+	assert.False(t, isMembershipError(fmt.Errorf("some plain error")))
+	assert.False(t, isMembershipError(nil))
+}

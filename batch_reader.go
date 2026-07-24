@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -305,6 +306,19 @@ func (br *KafkaBatchReader) createCommitFunc(messages map[int32]*kafka.Message, 
 				return ctx.Err()
 			default:
 				if _, err := br.consumer.CommitMessage(msg); err != nil {
+					if isMembershipError(err) {
+						// The consumer's group membership is gone (rebalance or
+						// expulsion): commits keep failing until it rejoins, and
+						// committing now could rewind progress another member has
+						// already made on this partition. Skip instead of retry;
+						// the messages will be re-consumed from the last committed
+						// offset after rejoin (at-least-once).
+						l.WithError(err).WithFields(logrus.Fields{
+							"partition": partition,
+							"offset":    msg.TopicPartition.Offset,
+						}).Warn("Group membership lost, skip commit; batch will be re-consumed after rejoin")
+						return nil
+					}
 					l.WithError(err).WithFields(logrus.Fields{
 						"partition": partition,
 						"offset":    msg.TopicPartition.Offset,
@@ -315,4 +329,19 @@ func (br *KafkaBatchReader) createCommitFunc(messages map[int32]*kafka.Message, 
 		}
 		return nil
 	}
+}
+
+// isMembershipError reports whether err means the consumer's group membership
+// is gone (rebalance in progress, illegal generation, or unknown member).
+// Such errors cannot be fixed by retrying the commit: the consumer must
+// rejoin the group first.
+func isMembershipError(err error) bool {
+	var kerr kafka.Error
+	if errors.As(err, &kerr) {
+		switch kerr.Code() {
+		case kafka.ErrUnknownMemberID, kafka.ErrIllegalGeneration, kafka.ErrRebalanceInProgress:
+			return true
+		}
+	}
+	return false
 }
