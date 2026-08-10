@@ -144,6 +144,20 @@ TEST_KAFKA_BROKER='127.0.0.1:9092' \
 go test . -run '^TestKafkaBatchReader_Integration$' -count=1 -timeout=180s
 ```
 
+单独运行 10 万条 raw-mode、多文件 `COPY INTO` 全链路压力测试：
+
+```bash
+RUN_STRESS_E2E=1 \
+TEST_DATABEND_DSN='http://databend:databend@localhost:8002?presigned_url_disabled=true' \
+TEST_KAFKA_BROKER='127.0.0.1:9092' \
+go test . -run '^TestCopyIntoFileCountStressE2E$' -count=1 -timeout=20m -v
+```
+
+该测试固定使用 `isJsonTransform=false`、`batchSize=1000`、
+`copyIntoFileCount=5`，向真实 Kafka 写入 10 万条消息，通过真实 stage 和
+`COPY INTO` 写入 Databend raw table，并校验总行数、唯一 offset、offset 范围、
+raw data、record metadata、上传/COPY 次数及 Prometheus metrics。
+
 > 当前不要使用 `go test ./...` 作为验收命令。`scripts/create_topic.go` 和
 > `scripts/produce_demo.go` 位于同一个目录，并且都声明了 `main`，Go 会把它们当作
 > 同一个 package 编译，从而报 `main redeclared`。这与 Kafka/Databend 集成链路无关。
@@ -200,6 +214,7 @@ cat > /tmp/bend-ingest-kafka-e2e.json <<EOF
   "databendTable": "default.$TABLE",
   "batchSize": 1000,
   "batchMaxInterval": 2,
+  "copyIntoFileCount": 5,
   "dataFormat": "json",
   "workers": 4,
   "copyPurge": true,
@@ -209,7 +224,7 @@ cat > /tmp/bend-ingest-kafka-e2e.json <<EOF
   "maxBytes": 20971520,
   "maxWait": 1,
   "useReplaceMode": false,
-  "useStreamingLoad": true,
+  "useStreamingLoad": false,
   "copyIntoUploadCompression": true,
   "maxRetryDelay": 30,
   "metricsPort": 22112,
@@ -220,8 +235,11 @@ cat > /tmp/bend-ingest-kafka-e2e.json <<EOF
 EOF
 ```
 
-这里使用 raw mode（`isJsonTransform=false`），应用会自动创建目标表。使用
-`range,roundrobin` 是为了保持与 librdkafka 旧版本和滚动升级兼容。
+这里使用 raw mode（`isJsonTransform=false`）和真实的 `uploadToStage + COPY INTO`
+路径（`useStreamingLoad=false`）。`copyIntoFileCount=5` 表示每个 worker 每上传 5 个仍按
+`batchSize` 生成的文件，才执行一次多文件 `COPY INTO`；SIGTERM 时不足 5 个的剩余文件
+也会被 flush 并提交 Kafka offset。使用 `range,roundrobin` 是为了保持与 librdkafka
+旧版本和滚动升级兼容。
 
 ## 8. 准备可指定 partition 的生产器
 

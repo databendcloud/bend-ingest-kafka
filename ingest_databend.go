@@ -45,8 +45,17 @@ func init() {
 	uuid.EnableRandPool()
 }
 
+type StagedBatch struct {
+	Stage     *godatabend.StageLocation
+	Rows      int
+	Bytes     int
+	StartedAt time.Time
+}
+
 type DatabendIngester interface {
 	IngestData(messageBatch *message.MessagesBatch) error
+	StageData(messageBatch *message.MessagesBatch) (*StagedBatch, error)
+	CopyInto(stagedBatches []*StagedBatch) error
 	IngestParquetData(messageBatch *message.MessagesBatch) error
 	CreateRawTargetTable() error
 	Close() error
@@ -379,6 +388,65 @@ func (ig *databendIngester) IngestParquetData(messageBatch *message.MessagesBatc
 	return nil
 }
 
+func (ig *databendIngester) StageData(messageBatch *message.MessagesBatch) (*StagedBatch, error) {
+	if messageBatch.Empty() {
+		return nil, nil
+	}
+	startedAt := time.Now()
+	var batchJSONData []string
+	var err error
+	if !ig.databendIngesterCfg.IsJsonTransform {
+		batchJSONData, err = ig.reWriteTheJsonData(messageBatch)
+	} else {
+		batchJSONData = messageBatch.ExtractMessageData()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	fileName, bytesSize, err := ig.generateNDJsonFile(batchJSONData)
+	if err != nil {
+		ingestErrors.Inc()
+		return nil, err
+	}
+	stage, err := ig.uploadToStage(fileName)
+	if err != nil {
+		ingestErrors.Inc()
+		return nil, err
+	}
+	return &StagedBatch{Stage: stage, Rows: len(batchJSONData), Bytes: bytesSize, StartedAt: startedAt}, nil
+}
+
+func (ig *databendIngester) CopyInto(stagedBatches []*StagedBatch) error {
+	if len(stagedBatches) == 0 {
+		return nil
+	}
+	stages := make([]*godatabend.StageLocation, 0, len(stagedBatches))
+	rows, bytesSize := 0, 0
+	startedAt := stagedBatches[0].StartedAt
+	for _, batch := range stagedBatches {
+		if batch == nil || batch.Stage == nil {
+			return fmt.Errorf("invalid staged batch")
+		}
+		stages = append(stages, batch.Stage)
+		rows += batch.Rows
+		bytesSize += batch.Bytes
+		if batch.StartedAt.Before(startedAt) {
+			startedAt = batch.StartedAt
+		}
+	}
+	if err := ig.copyInto(stages); err != nil {
+		ingestErrors.Inc()
+		return err
+	}
+	ig.statsRecorder.RecordMetric(bytesSize, rows)
+	ingestRowsTotal.Add(float64(rows))
+	ingestBytesTotal.Add(float64(bytesSize))
+	stats := ig.statsRecorder.Stats(time.Since(startedAt))
+	log.Printf("ingest %d rows (%f rows/s), %d bytes (%f bytes/s), files=%d in %s", rows, stats.RowsPerSecond, bytesSize, stats.BytesPerSecond, len(stagedBatches), time.Since(startedAt))
+	return nil
+}
+
 func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) error {
 	if messageBatch.Empty() {
 		return nil
@@ -433,7 +501,7 @@ func (ig *databendIngester) IngestData(messageBatch *message.MessagesBatch) erro
 		return err
 	}
 
-	err = ig.copyInto(stage)
+	err = ig.copyInto([]*godatabend.StageLocation{stage})
 	if err != nil {
 		l.Errorf("copy into failed: %v, lastOffset is: %d, partition is %d\n", err,
 			messageBatch.LastMessageOffset, messageBatch.Messages[0].Partition)
@@ -636,22 +704,36 @@ func stageDirAndFile(stage *godatabend.StageLocation) (string, string) {
 	return (&godatabend.StageLocation{Name: stage.Name, Path: dir}).String(), file
 }
 
-func buildCopyIntoSQL(table string, stage *godatabend.StageLocation, purge, force, disableVariantCheck bool) string {
-	stageDir, file := stageDirAndFile(stage)
+func buildCopyIntoSQL(table string, stages []*godatabend.StageLocation, purge, force, disableVariantCheck bool) (string, error) {
+	if len(stages) == 0 {
+		return "", fmt.Errorf("COPY INTO requires at least one stage file")
+	}
+	stageDir, firstFile := stageDirAndFile(stages[0])
+	files := []string{sqlStringLiteral(firstFile)}
+	for _, stage := range stages[1:] {
+		dir, file := stageDirAndFile(stage)
+		if dir != stageDir {
+			return "", fmt.Errorf("COPY INTO stage files must share one directory: %s != %s", dir, stageDir)
+		}
+		files = append(files, sqlStringLiteral(file))
+	}
 	return fmt.Sprintf("COPY INTO %s FROM %s FILES = (%s) FILE_FORMAT = (type = NDJSON missing_field_as = FIELD_DEFAULT COMPRESSION = AUTO) "+
-		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", table, stageDir, sqlStringLiteral(file),
-		purge, force, disableVariantCheck)
+		"PURGE = %v FORCE = %v DISABLE_VARIANT_CHECK = %v", table, stageDir, strings.Join(files, ", "),
+		purge, force, disableVariantCheck), nil
 }
 
-func (ig *databendIngester) copyInto(stage *godatabend.StageLocation) error {
+func (ig *databendIngester) copyInto(stages []*godatabend.StageLocation) error {
 	startTime := time.Now()
-	copyIntoSQL := buildCopyIntoSQL(ig.databendIngesterCfg.DatabendTable, stage,
+	copyIntoSQL, err := buildCopyIntoSQL(ig.databendIngesterCfg.DatabendTable, stages,
 		ig.databendIngesterCfg.CopyPurge, ig.databendIngesterCfg.CopyForce, ig.databendIngesterCfg.DisableVariantCheck)
+	if err != nil {
+		return errors.Wrap(ErrCopyIntoFailed, err.Error())
+	}
 
 	if err := execute(ig.db, copyIntoSQL); err != nil {
 		return errors.Wrap(ErrCopyIntoFailed, err.Error())
 	}
-	logrus.Infof("copy into %s, cost: %s", ig.databendIngesterCfg.DatabendTable, time.Since(startTime))
+	logrus.Infof("copy into %s, files=%d, cost: %s", ig.databendIngesterCfg.DatabendTable, len(stages), time.Since(startTime))
 	copyIntoDuration.Observe(time.Since(startTime).Seconds())
 	return nil
 }

@@ -50,6 +50,7 @@ Edit `/opt/bend-ingest-kafka/config.json`:
   "isJsonTransform": true,
   "batchSize": 5000,
   "batchMaxInterval": 30,
+  "copyIntoFileCount": 5,
   "dataFormat": "json",
   "workers": 2,
   "metricsPort": 2112,
@@ -62,6 +63,7 @@ Edit `/opt/bend-ingest-kafka/config.json`:
 Key parameters to tune for production:
 - `batchSize`: larger batches = higher throughput, higher latency (recommended: 5000-10000)
 - `batchMaxInterval`: max seconds to wait before flushing an incomplete batch
+- `copyIntoFileCount`: upload each batch file immediately, then load this many files with one `COPY INTO` (default: 5); graceful shutdown flushes a smaller remainder
 - `workers`: number of parallel consumers (match Kafka partition count for best throughput)
 
 ### Rebalance Optimization
