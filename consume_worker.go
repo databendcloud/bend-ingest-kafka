@@ -11,7 +11,14 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
+	"github.com/databendcloud/bend-ingest-kafka/message"
 )
+
+type pendingCopyBatch struct {
+	batch        *message.MessagesBatch
+	staged       *StagedBatch
+	consumedByte int
+}
 
 type ConsumeWorker struct {
 	name          string
@@ -19,6 +26,7 @@ type ConsumeWorker struct {
 	ig            DatabendIngester
 	batchReader   BatchReader
 	statsRecorder *DatabendConsumeStatsRecorder
+	pending       []pendingCopyBatch
 }
 
 func NewConsumeWorker(cfg *config.Config, name string, ig DatabendIngester) *ConsumeWorker {
@@ -32,11 +40,21 @@ func NewConsumeWorker(cfg *config.Config, name string, ig DatabendIngester) *Con
 }
 
 func (c *ConsumeWorker) Close() {
+	if err := c.flushPending(); err != nil {
+		logrus.Errorf("Failed to flush pending COPY INTO files for %s during shutdown: %v", c.name, err)
+	}
+	if err := c.batchReader.Close(); err != nil {
+		logrus.Errorf("Failed to close batch reader for %s: %v", c.name, err)
+	}
 	logrus.Printf("%v exited", c.name)
-	c.batchReader.Close()
 }
 
 func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
+	// A previous COPY INTO may have exhausted its retry budget. Do not consume
+	// and upload more Kafka batches until that complete group is flushed.
+	if len(c.pending) >= c.copyIntoFileCount() {
+		return c.flushPending()
+	}
 	batchStartTime := time.Now()
 	l := logrus.WithFields(logrus.Fields{"consumer_worker": "stepBatch"})
 	l.Debug("read batch")
@@ -61,6 +79,28 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 
 	l.Debug("DEBUG: ingest data")
 	maxRetryDelay := time.Duration(c.cfg.MaxRetryDelay) * time.Second
+	if c.usesBatchedCopyInto() {
+		var staged *StagedBatch
+		err := DoRetry(func() error {
+			var stageErr error
+			staged, stageErr = c.ig.StageData(batch)
+			return stageErr
+		}, maxRetryDelay, "StageData")
+		if err != nil {
+			l.Errorf("Failed to upload data between %d-%d to stage: %v", batch.FirstMessageOffset, batch.LastMessageOffset, err)
+			return err
+		}
+		c.pending = append(c.pending, pendingCopyBatch{batch: batch, staged: staged, consumedByte: allByteSize})
+		l.WithFields(logrus.Fields{
+			"pending_file_count":   len(c.pending),
+			"copy_into_file_count": c.copyIntoFileCount(),
+		}).Info("Stage file pending COPY INTO")
+		if len(c.pending) < c.copyIntoFileCount() {
+			return nil
+		}
+		return c.flushPending()
+	}
+
 	if c.cfg.UseReplaceMode && !c.cfg.IsJsonTransform {
 		err := DoRetry(
 			func() error {
@@ -83,6 +123,60 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 		}
 	}
 
+	if err := c.commitBatch(batch, l); err != nil {
+		return err
+	}
+
+	c.recordConsumed(allByteSize, len(batch.Messages), batchStartTime)
+	return nil
+}
+
+func (c *ConsumeWorker) usesBatchedCopyInto() bool {
+	return !c.cfg.UseStreamingLoad && !(c.cfg.UseReplaceMode && !c.cfg.IsJsonTransform)
+}
+
+func (c *ConsumeWorker) copyIntoFileCount() int {
+	if c.cfg.CopyIntoFileCount <= 0 {
+		// Config values constructed directly in code do not pass through defaults.
+		return 5
+	}
+	return c.cfg.CopyIntoFileCount
+}
+
+func (c *ConsumeWorker) flushPending() error {
+	if len(c.pending) == 0 {
+		return nil
+	}
+	staged := make([]*StagedBatch, 0, len(c.pending))
+	for _, pending := range c.pending {
+		staged = append(staged, pending.staged)
+	}
+	maxRetryDelay := time.Duration(c.cfg.MaxRetryDelay) * time.Second
+	if err := DoRetry(func() error { return c.ig.CopyInto(staged) }, maxRetryDelay, "CopyInto"); err != nil {
+		return err
+	}
+
+	l := logrus.WithFields(logrus.Fields{"consumer_worker": c.name, "copy_file_count": len(c.pending)})
+	for _, pending := range c.pending {
+		if err := c.commitBatch(pending.batch, l); err != nil {
+			return err
+		}
+		c.recordConsumed(pending.consumedByte, len(pending.batch.Messages), pending.staged.StartedAt)
+	}
+	c.pending = nil
+	return nil
+}
+
+func (c *ConsumeWorker) recordConsumed(byteSize, rows int, startedAt time.Time) {
+	c.statsRecorder.RecordMetric(byteSize, rows)
+	consumeRowsTotal.Add(float64(rows))
+	consumeBytesTotal.Add(float64(byteSize))
+	stats := c.statsRecorder.Stats(time.Since(startedAt))
+	log.Printf("consume %d rows (%f rows/s), %d bytes (%f bytes/s) in %d ms", rows, stats.RowsPerSecond, byteSize, stats.BytesPerSecond, time.Since(startedAt).Milliseconds())
+}
+
+func (c *ConsumeWorker) commitBatch(batch *message.MessagesBatch, l *logrus.Entry) error {
+	var err error
 	l.Debug("DEBUG: commit")
 	// Retry the commit with a capped backoff, and never block the poll loop
 	// for longer than librdkafka's max.poll.interval.ms (default 300s):
@@ -94,7 +188,6 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 		commitMaxBackoff = 30 * time.Second
 	)
 	retryInterval := time.Second
-	startCommitTime := time.Now()
 	for i := 0; i < commitMaxRetries; i++ {
 		ctx := context.Background()
 		err = batch.CommitFunc(ctx)
@@ -113,34 +206,23 @@ func (c *ConsumeWorker) stepBatch(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		// Give up and crash: the process restarts, rejoins the group, and
-		// re-consumes this batch from the last committed offset
-		// (at-least-once). The retry budget above is kept well below the
-		// 300s max.poll.interval.ms limit.
 		panic(fmt.Sprintf("Failed to commit messages at %d after %d attempts: %v", batch.LastMessageOffset, commitMaxRetries, err))
 	}
-
-	endConsumeTime := time.Now()
-	c.statsRecorder.RecordMetric(allByteSize, len(batch.Messages))
-	consumeRowsTotal.Add(float64(len(batch.Messages)))
-	consumeBytesTotal.Add(float64(allByteSize))
-	stats := c.statsRecorder.Stats(time.Since(startCommitTime))
-	log.Printf("consume %d rows (%f rows/s), %d bytes (%f bytes/s) in %d ms", len(batch.Messages), stats.RowsPerSecond, allByteSize, stats.BytesPerSecond, endConsumeTime.Sub(startCommitTime).Milliseconds())
-
-	log.Printf("process %d rows (%f rows/s) in %d ms", len(batch.Messages), float64(len(batch.Messages))/time.Since(batchStartTime).Seconds(), time.Since(batchStartTime).Milliseconds())
 	return nil
 }
 
 func (c *ConsumeWorker) Run(ctx context.Context) {
 	logrus.Printf("Starting worker %s", c.name)
+	defer c.Close()
 
 	for {
 		select {
 		case <-ctx.Done():
-			c.Close()
 			return
 		default:
-			c.stepBatch(ctx)
+			if err := c.stepBatch(ctx); err != nil {
+				logrus.WithError(err).WithField("consumer_worker", c.name).Error("Worker step failed")
+			}
 		}
 	}
 }

@@ -191,11 +191,14 @@ func (br *KafkaBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBat
 	batchDeadline := time.Now().Add(time.Duration(br.maxBatchInterval) * time.Second)
 	pollTimeoutMs := 500
 
+pollLoop:
 	for {
 		select {
 		case <-ctx.Done():
 			if len(batch) > 0 {
-				break
+				// Preserve messages already polled so graceful shutdown can upload,
+				// COPY, and commit this final partial batch.
+				break pollLoop
 			}
 			return nil, ctx.Err()
 		default:

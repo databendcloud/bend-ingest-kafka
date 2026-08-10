@@ -296,7 +296,8 @@ func TestBuildCopyIntoSQLUsesFilesOption(t *testing.T) {
 		Path: "batch/1778578427-databend-ingest-2394177572.ndjson.zst",
 	}
 
-	sql := buildCopyIntoSQL("otel_traces.kafka_raw", stage, true, false, true)
+	sql, err := buildCopyIntoSQL("otel_traces.kafka_raw", []*godatabend.StageLocation{stage}, true, false, true)
+	assert.NoError(t, err)
 
 	assert.Contains(t, sql, "COPY INTO otel_traces.kafka_raw FROM @otel_tmp/batch/ FILES = ('1778578427-databend-ingest-2394177572.ndjson.zst')")
 	assert.NotContains(t, sql, "FROM @otel_tmp/batch/1778578427-databend-ingest-2394177572.ndjson.zst")
@@ -310,9 +311,34 @@ func TestBuildCopyIntoSQLEscapesFileName(t *testing.T) {
 		Path: "batch/batch's.ndjson.zst",
 	}
 
-	sql := buildCopyIntoSQL("otel_traces.kafka_raw", stage, false, false, false)
+	sql, err := buildCopyIntoSQL("otel_traces.kafka_raw", []*godatabend.StageLocation{stage}, false, false, false)
+	assert.NoError(t, err)
 
 	assert.Contains(t, sql, "FROM @otel_tmp/batch/ FILES = ('batch''s.ndjson.zst')")
+}
+
+func TestBuildCopyIntoSQLMultipleFiles(t *testing.T) {
+	stages := []*godatabend.StageLocation{
+		{Name: "otel_tmp", Path: "batch/one.ndjson.zst"},
+		{Name: "otel_tmp", Path: "batch/two's.ndjson.zst"},
+		{Name: "otel_tmp", Path: "batch/three.ndjson.zst"},
+	}
+
+	sql, err := buildCopyIntoSQL("default.raw", stages, true, false, true)
+	assert.NoError(t, err)
+	assert.Contains(t, sql, "FROM @otel_tmp/batch/ FILES = ('one.ndjson.zst', 'two''s.ndjson.zst', 'three.ndjson.zst')")
+	assert.Contains(t, sql, "PURGE = true FORCE = false DISABLE_VARIANT_CHECK = true")
+}
+
+func TestBuildCopyIntoSQLRejectsEmptyOrDifferentDirectories(t *testing.T) {
+	_, err := buildCopyIntoSQL("default.raw", nil, false, false, false)
+	assert.Error(t, err)
+
+	_, err = buildCopyIntoSQL("default.raw", []*godatabend.StageLocation{
+		{Name: "stage", Path: "batch-a/one.ndjson"},
+		{Name: "stage", Path: "batch-b/two.ndjson"},
+	}, false, false, false)
+	assert.Error(t, err)
 }
 
 func TestStreamingLoadRetryOn5xx(t *testing.T) {

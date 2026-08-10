@@ -17,8 +17,8 @@ import (
 
 func TestValidateConfig_Valid(t *testing.T) {
 	cfg := &config.Config{
-		IsJsonTransform: true,
-		UseReplaceMode:  false,
+		IsJsonTransform:  true,
+		UseReplaceMode:   false,
 		UseStreamingLoad: false,
 	}
 	assert.NotPanics(t, func() { validateConfig(cfg) })
@@ -63,6 +63,14 @@ func TestValidateConfig_SASLWithUser(t *testing.T) {
 		SaslUser: "admin",
 	}
 	assert.NotPanics(t, func() { validateConfig(cfg) })
+}
+
+func TestValidateConfig_CopyIntoFileCount(t *testing.T) {
+	zero := &config.Config{}
+	assert.NotPanics(t, func() { validateConfig(zero) })
+	assert.Equal(t, 5, zero.CopyIntoFileCount)
+	assert.NotPanics(t, func() { validateConfig(&config.Config{CopyIntoFileCount: 1}) })
+	assert.Panics(t, func() { validateConfig(&config.Config{CopyIntoFileCount: -1}) })
 }
 
 func TestMockBatchReader(t *testing.T) {

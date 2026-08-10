@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/test-go/testify/assert"
 
 	"github.com/databendcloud/bend-ingest-kafka/config"
@@ -130,6 +133,7 @@ func TestConsumeKafka(t *testing.T) {
 		IsJsonTransform:       true,
 		KafkaConsumerGroup:    fmt.Sprintf("test-%d", time.Now().UnixNano()),
 		BatchSize:             10,
+		CopyIntoFileCount:     1,
 		Workers:               1,
 		DataFormat:            "json",
 		BatchMaxInterval:      10,
@@ -185,6 +189,7 @@ func TestConsumerWithoutTransform(t *testing.T) {
 		IsJsonTransform:       false,
 		KafkaConsumerGroup:    fmt.Sprintf("test-raw-%d", time.Now().UnixNano()),
 		BatchSize:             10,
+		CopyIntoFileCount:     1,
 		Workers:               1,
 		DataFormat:            "json",
 		BatchMaxInterval:      10,
@@ -217,6 +222,298 @@ func TestConsumerWithoutTransform(t *testing.T) {
 	assert.NotEqual(t, 0, count)
 }
 
+func TestCopyIntoFileAggregationE2E(t *testing.T) {
+	consumeTopic := fmt.Sprintf("copy_into_files_e2e_%d", time.Now().UnixNano())
+	tableName := fmt.Sprintf("copy_into_files_e2e_%d", time.Now().UnixNano())
+	tt := prepareConsumeWorkerTest(consumeTopic, 1)
+	produceMessage(consumeTopic, 1)
+
+	db, err := sql.Open("databend", tt.databendDSN)
+	assert.NoError(t, err)
+	defer db.Close()
+	assert.NoError(t, execute(db, fmt.Sprintf(`CREATE OR REPLACE TABLE %s (
+		i64 Int64, u64 UInt64, f64 Float64, s String, s2 String,
+		a16 Array(Int16), a8 Array(UInt8), d Date, t DateTime)`, tableName)))
+	defer execute(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+
+	cfg := &config.Config{
+		DatabendDSN:           tt.databendDSN,
+		DatabendTable:         tableName,
+		KafkaTopic:            consumeTopic,
+		KafkaBootstrapServers: tt.kafkaBrokers[0],
+		KafkaConsumerGroup:    fmt.Sprintf("copy-files-e2e-%d", time.Now().UnixNano()),
+		IsJsonTransform:       true,
+		BatchSize:             1,
+		BatchMaxInterval:      2,
+		CopyIntoFileCount:     3,
+		UserStage:             "~",
+		CopyPurge:             true,
+		MinBytes:              1,
+		MaxWait:               1,
+		DisableTLS:            true,
+		MaxRetryDelay:         5,
+	}
+	ig := NewDatabendIngester(cfg)
+	defer ig.Close()
+	worker := NewConsumeWorker(cfg, "copy-files-e2e", ig)
+
+	rowCount := func() int {
+		var count int
+		assert.NoError(t, db.QueryRow(fmt.Sprintf("SELECT count(*) FROM %s", tableName)).Scan(&count))
+		return count
+	}
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.Equal(t, 0, rowCount(), "the first uploaded file must not trigger COPY INTO")
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.Equal(t, 0, rowCount(), "the second uploaded file must not trigger COPY INTO")
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.Equal(t, 3, rowCount(), "the third file must trigger one multi-file COPY INTO")
+	worker.Close()
+}
+
+func TestCopyIntoFileAggregationGracefulShutdownE2E(t *testing.T) {
+	consumeTopic := fmt.Sprintf("copy_into_shutdown_e2e_%d", time.Now().UnixNano())
+	tableName := fmt.Sprintf("copy_into_shutdown_e2e_%d", time.Now().UnixNano())
+	tt := prepareConsumeWorkerTest(consumeTopic, 1)
+	produceMessage(consumeTopic, 1)
+
+	db, err := sql.Open("databend", tt.databendDSN)
+	assert.NoError(t, err)
+	defer db.Close()
+	assert.NoError(t, execute(db, fmt.Sprintf(`CREATE OR REPLACE TABLE %s (
+		i64 Int64, u64 UInt64, f64 Float64, s String, s2 String,
+		a16 Array(Int16), a8 Array(UInt8), d Date, t DateTime)`, tableName)))
+	defer execute(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+
+	cfg := &config.Config{
+		DatabendDSN:           tt.databendDSN,
+		DatabendTable:         tableName,
+		KafkaTopic:            consumeTopic,
+		KafkaBootstrapServers: tt.kafkaBrokers[0],
+		KafkaConsumerGroup:    fmt.Sprintf("copy-shutdown-e2e-%d", time.Now().UnixNano()),
+		IsJsonTransform:       true,
+		BatchSize:             1,
+		BatchMaxInterval:      2,
+		CopyIntoFileCount:     5,
+		UserStage:             "~",
+		CopyPurge:             true,
+		MinBytes:              1,
+		MaxWait:               1,
+		DisableTLS:            true,
+		MaxRetryDelay:         5,
+	}
+	ig := NewDatabendIngester(cfg)
+	defer ig.Close()
+	worker := NewConsumeWorker(cfg, "copy-shutdown-e2e", ig)
+	for i := 0; i < 3; i++ {
+		assert.NoError(t, worker.stepBatch(context.Background()))
+	}
+	var before int
+	assert.NoError(t, db.QueryRow(fmt.Sprintf("SELECT count(*) FROM %s", tableName)).Scan(&before))
+	assert.Equal(t, 0, before)
+
+	worker.Close() // flushes three files (below the threshold) and commits them
+	var after int
+	assert.NoError(t, db.QueryRow(fmt.Sprintf("SELECT count(*) FROM %s", tableName)).Scan(&after))
+	assert.Equal(t, 3, after)
+
+	// Rejoin with the same consumer group. A committed graceful flush must leave no messages to replay.
+	reader := NewKafkaBatchReader(cfg)
+	defer reader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	batch, readErr := reader.ReadBatch(ctx)
+	assert.True(t, errors.Is(readErr, context.DeadlineExceeded))
+	assert.Nil(t, batch)
+}
+
+func TestCopyIntoFileCountStressE2E(t *testing.T) {
+	if os.Getenv("RUN_STRESS_E2E") != "1" {
+		t.Skip("set RUN_STRESS_E2E=1 to run the 100k-message full-chain stress test")
+	}
+
+	const (
+		messageCount      = 100_000
+		batchSize         = 1_000
+		copyIntoFileCount = 5
+	)
+	consumeTopic := fmt.Sprintf("copy_into_stress_e2e_%d", time.Now().UnixNano())
+	tableName := fmt.Sprintf("copy_into_stress_e2e_%d", time.Now().UnixNano())
+	consumerGroup := fmt.Sprintf("copy-stress-e2e-%d", time.Now().UnixNano())
+	tt := prepareConsumeWorkerTest(consumeTopic, 1)
+
+	producerStart := time.Now()
+	producedBytes := produceRawStressMessages(t, tt.kafkaBrokers[0], consumeTopic, messageCount)
+	producerDuration := time.Since(producerStart)
+
+	cfg := &config.Config{
+		DatabendDSN:               tt.databendDSN,
+		DatabendTable:             tableName,
+		KafkaTopic:                consumeTopic,
+		KafkaBootstrapServers:     tt.kafkaBrokers[0],
+		KafkaConsumerGroup:        consumerGroup,
+		IsJsonTransform:           false,
+		BatchSize:                 batchSize,
+		BatchMaxInterval:          10,
+		CopyIntoFileCount:         copyIntoFileCount,
+		Workers:                   1,
+		UserStage:                 "~",
+		CopyPurge:                 true,
+		DisableVariantCheck:       true,
+		CopyIntoUploadCompression: true,
+		MinBytes:                  1,
+		MaxBytes:                  20 * 1024 * 1024,
+		MaxWait:                   1,
+		DisableTLS:                true,
+		MaxRetryDelay:             30,
+	}
+
+	db, err := sql.Open("databend", cfg.DatabendDSN)
+	assert.NoError(t, err)
+	defer db.Close()
+	defer execute(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+
+	ingester := NewDatabendIngester(cfg)
+	defer ingester.Close()
+	assert.NoError(t, ingester.CreateRawTargetTable())
+	worker := NewConsumeWorker(cfg, "copy-stress-e2e", ingester)
+
+	before := captureIngestMetrics()
+	ingestStart := time.Now()
+	for consumed := 0; consumed < messageCount; consumed += batchSize {
+		assert.NoError(t, worker.stepBatch(context.Background()))
+	}
+	worker.Close()
+	ingestDuration := time.Since(ingestStart)
+	after := captureIngestMetrics()
+
+	var rowCount, distinctOffsets, validRawRows, metadataRows int64
+	var minOffset, maxOffset int64
+	err = db.QueryRow(fmt.Sprintf(`SELECT
+		count(*), count(DISTINCT koffset), min(koffset), max(koffset),
+		count_if(raw_data IS NOT NULL), count_if(record_metadata IS NOT NULL)
+		FROM %s WHERE kpartition = 0`, tableName)).Scan(
+		&rowCount, &distinctOffsets, &minOffset, &maxOffset, &validRawRows, &metadataRows)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(messageCount), rowCount)
+	assert.Equal(t, int64(messageCount), distinctOffsets)
+	assert.Equal(t, int64(0), minOffset)
+	assert.Equal(t, int64(messageCount-1), maxOffset)
+	assert.Equal(t, int64(messageCount), validRawRows)
+	assert.Equal(t, int64(messageCount), metadataRows)
+
+	metrics := after.subtract(before)
+	assert.Equal(t, float64(messageCount), metrics.ingestRows)
+	assert.Equal(t, float64(messageCount), metrics.consumeRows)
+	assert.Equal(t, uint64(messageCount/batchSize), metrics.uploadCount)
+	assert.Equal(t, uint64(messageCount/batchSize/copyIntoFileCount), metrics.copyCount)
+	assert.Equal(t, uint64(messageCount/batchSize), metrics.batchCount)
+	assert.Equal(t, float64(messageCount), metrics.batchSizeSum)
+	assert.Zero(t, metrics.ingestErrors)
+
+	t.Logf("100k stress result: rows=%d distinct_offsets=%d offset_range=%d..%d producer_duration=%s producer_rate=%.2f msg/s ingest_duration=%s ingest_rate=%.2f rows/s source_bytes=%d",
+		rowCount, distinctOffsets, minOffset, maxOffset, producerDuration,
+		float64(messageCount)/producerDuration.Seconds(), ingestDuration,
+		float64(messageCount)/ingestDuration.Seconds(), producedBytes)
+	t.Logf("100k stress metrics: ingest_rows=%.0f ingest_bytes=%.0f consume_rows=%.0f consume_bytes=%.0f upload_count=%d upload_total=%.3fs upload_avg=%.3fs copy_count=%d copy_total=%.3fs copy_avg=%.3fs batch_count=%d batch_size_sum=%.0f batch_fill_total=%.3fs errors=%.0f",
+		metrics.ingestRows, metrics.ingestBytes, metrics.consumeRows, metrics.consumeBytes,
+		metrics.uploadCount, metrics.uploadSum, averageDuration(metrics.uploadSum, metrics.uploadCount),
+		metrics.copyCount, metrics.copySum, averageDuration(metrics.copySum, metrics.copyCount),
+		metrics.batchCount, metrics.batchSizeSum, metrics.batchFillSum, metrics.ingestErrors)
+}
+
+func produceRawStressMessages(t *testing.T, broker, topic string, count int) int64 {
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers":            broker,
+		"queue.buffering.max.messages": 200000,
+		"batch.num.messages":           10000,
+		"linger.ms":                    10,
+	})
+	assert.NoError(t, err)
+
+	var deliveryFailures atomic.Int64
+	deliveryDone := make(chan struct{})
+	go func() {
+		defer close(deliveryDone)
+		for event := range producer.Events() {
+			if msg, ok := event.(*kafka.Message); ok && msg.TopicPartition.Error != nil {
+				deliveryFailures.Add(1)
+			}
+		}
+	}()
+
+	var bytesTotal int64
+	for i := 0; i < count; i++ {
+		value := []byte(fmt.Sprintf(`{"seq":%d,"source":"copy-into-100k-stress","payload":"abcdefghijklmnopqrstuvwxyz0123456789"}`, i))
+		bytesTotal += int64(len(value))
+		err = producer.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0},
+			Key:            []byte(fmt.Sprintf("key-%d", i)),
+			Value:          value,
+		}, nil)
+		assert.NoError(t, err)
+	}
+	remaining := producer.Flush(60_000)
+	producer.Close()
+	<-deliveryDone
+	assert.Equal(t, 0, remaining)
+	assert.Equal(t, int64(0), deliveryFailures.Load())
+	return bytesTotal
+}
+
+type ingestMetricSnapshot struct {
+	ingestRows, ingestBytes, consumeRows, consumeBytes, ingestErrors float64
+	uploadCount, copyCount, batchCount                               uint64
+	uploadSum, copySum, batchSizeSum, batchFillSum                   float64
+}
+
+func captureIngestMetrics() ingestMetricSnapshot {
+	counter := func(metric interface{ Write(*dto.Metric) error }) float64 {
+		m := &dto.Metric{}
+		_ = metric.Write(m)
+		return m.GetCounter().GetValue()
+	}
+	histogram := func(metric interface{ Write(*dto.Metric) error }) (uint64, float64) {
+		m := &dto.Metric{}
+		_ = metric.Write(m)
+		return m.GetHistogram().GetSampleCount(), m.GetHistogram().GetSampleSum()
+	}
+	uploadCount, uploadSum := histogram(uploadStageDuration)
+	copyCount, copySum := histogram(copyIntoDuration)
+	batchCount, batchSizeSum := histogram(batchSizeHist)
+	_, batchFillSum := histogram(batchFillDuration)
+	return ingestMetricSnapshot{
+		ingestRows: counter(ingestRowsTotal), ingestBytes: counter(ingestBytesTotal),
+		consumeRows: counter(consumeRowsTotal), consumeBytes: counter(consumeBytesTotal),
+		ingestErrors: counter(ingestErrors), uploadCount: uploadCount, uploadSum: uploadSum,
+		copyCount: copyCount, copySum: copySum, batchCount: batchCount,
+		batchSizeSum: batchSizeSum, batchFillSum: batchFillSum,
+	}
+}
+
+func (m ingestMetricSnapshot) subtract(before ingestMetricSnapshot) ingestMetricSnapshot {
+	m.ingestRows -= before.ingestRows
+	m.ingestBytes -= before.ingestBytes
+	m.consumeRows -= before.consumeRows
+	m.consumeBytes -= before.consumeBytes
+	m.ingestErrors -= before.ingestErrors
+	m.uploadCount -= before.uploadCount
+	m.uploadSum -= before.uploadSum
+	m.copyCount -= before.copyCount
+	m.copySum -= before.copySum
+	m.batchCount -= before.batchCount
+	m.batchSizeSum -= before.batchSizeSum
+	m.batchFillSum -= before.batchFillSum
+	return m
+}
+
+func averageDuration(sum float64, count uint64) float64 {
+	if count == 0 {
+		return 0
+	}
+	return sum / float64(count)
+}
+
 func TestConsumerWithoutTransformWithCompressedCopyInto(t *testing.T) {
 	consumeRawTopic := "consume_raw_zstd_test"
 	consumeRawPartition := 1
@@ -236,6 +533,7 @@ func TestConsumerWithoutTransformWithCompressedCopyInto(t *testing.T) {
 		IsJsonTransform:           false,
 		KafkaConsumerGroup:        fmt.Sprintf("test-zstd-%d", time.Now().UnixNano()),
 		BatchSize:                 10,
+		CopyIntoFileCount:         1,
 		Workers:                   1,
 		DataFormat:                "json",
 		BatchMaxInterval:          10,

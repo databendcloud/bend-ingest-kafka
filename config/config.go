@@ -23,8 +23,11 @@ type Config struct {
 	DatabendTable         string `json:"databendTable"`
 	BatchSize             int    `json:"batchSize" default:"1000"`
 	BatchMaxInterval      int    `json:"batchMaxInterval" default:"30"`
-	DataFormat            string `json:"dataFormat" default:"json"`
-	Workers               int    `json:"workers" default:"1"`
+	// CopyIntoFileCount is the number of independently uploaded batch files loaded by one COPY INTO.
+	// It only applies to the uploadToStage + COPY INTO path; each file still contains at most BatchSize rows.
+	CopyIntoFileCount int    `json:"copyIntoFileCount" default:"5"`
+	DataFormat        string `json:"dataFormat" default:"json"`
+	Workers           int    `json:"workers" default:"1"`
 
 	// related docs: https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table
 	CopyPurge           bool `json:"copyPurge" default:"false"`
