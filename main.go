@@ -95,10 +95,13 @@ func validateConfig(cfg *config.Config) {
 	if cfg.CopyIntoFileCount == 0 {
 		// Config values constructed directly in code do not pass through the
 		// defaults package. Treat their zero value as the documented default.
-		cfg.CopyIntoFileCount = 5
+		cfg.CopyIntoFileCount = 128
 	}
 	if cfg.CopyIntoFileCount < 0 {
 		panic("copyIntoFileCount must be greater than zero")
+	}
+	if cfg.CopyIntoMaxInterval < 0 {
+		panic("copyIntoMaxInterval must not be negative")
 	}
 	if cfg.IsJsonTransform && cfg.UseReplaceMode {
 		panic("replace mode can only be used when is-json-transform is false")
@@ -156,7 +159,8 @@ func parseConfig(configFile *string) *config.Config {
 	flag.IntVar(&cfg.BatchSize, "batch-size", 1024, "Batch size")
 	flag.IntVar(&cfg.Workers, "workers", 1, "Number of workers")
 	flag.IntVar(&cfg.BatchMaxInterval, "batch-max-interval", 30, "Batch max interval")
-	flag.IntVar(&cfg.CopyIntoFileCount, "copy-into-file-count", 5, "Number of uploaded files per COPY INTO")
+	flag.IntVar(&cfg.CopyIntoFileCount, "copy-into-file-count", 128, "Number of uploaded files per COPY INTO")
+	flag.IntVar(&cfg.CopyIntoMaxInterval, "copy-into-max-interval", 5, "Maximum seconds uploaded files wait for COPY INTO; 0 disables the time trigger")
 	flag.StringVar(&cfg.DataFormat, "data-format", "json", "kafka data format")
 	flag.BoolVar(&cfg.CopyPurge, "copy-purge", false, "purge data before copy")
 	flag.BoolVar(&cfg.CopyForce, "copy-force", false, "force copy data")

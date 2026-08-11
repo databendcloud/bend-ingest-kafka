@@ -21,6 +21,7 @@ func TestLoadConfig(t *testing.T) {
 		"batchSize": 500,
 		"batchMaxInterval": 15,
 		"copyIntoFileCount": 7,
+		"copyIntoMaxInterval": 12,
 		"workers": 4,
 		"dataFormat": "json",
 		"minBytes": 2048,
@@ -51,6 +52,7 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, 500, cfg.BatchSize)
 	assert.Equal(t, 15, cfg.BatchMaxInterval)
 	assert.Equal(t, 7, cfg.CopyIntoFileCount)
+	assert.Equal(t, 12, cfg.CopyIntoMaxInterval)
 	assert.Equal(t, 4, cfg.Workers)
 	assert.Equal(t, 2048, cfg.MinBytes)
 	assert.Equal(t, 10485760, cfg.MaxBytes)
@@ -79,7 +81,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, false, cfg.IsSASL)
 	assert.Equal(t, 1000, cfg.BatchSize)
 	assert.Equal(t, 30, cfg.BatchMaxInterval)
-	assert.Equal(t, 5, cfg.CopyIntoFileCount)
+	assert.Equal(t, 128, cfg.CopyIntoFileCount)
+	assert.Equal(t, 5, cfg.CopyIntoMaxInterval)
 	assert.Equal(t, 1, cfg.Workers)
 	assert.Equal(t, 1024, cfg.MinBytes)
 	assert.Equal(t, 20971520, cfg.MaxBytes)

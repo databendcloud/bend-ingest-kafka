@@ -25,9 +25,13 @@ type Config struct {
 	BatchMaxInterval      int    `json:"batchMaxInterval" default:"30"`
 	// CopyIntoFileCount is the number of independently uploaded batch files loaded by one COPY INTO.
 	// It only applies to the uploadToStage + COPY INTO path; each file still contains at most BatchSize rows.
-	CopyIntoFileCount int    `json:"copyIntoFileCount" default:"5"`
-	DataFormat        string `json:"dataFormat" default:"json"`
-	Workers           int    `json:"workers" default:"1"`
+	CopyIntoFileCount int `json:"copyIntoFileCount" default:"128"`
+	// CopyIntoMaxInterval is the maximum time, in seconds, that uploaded files may wait for COPY INTO.
+	// The default is 5 seconds. Zero explicitly disables the time trigger.
+	// File-count and time triggers use OR semantics.
+	CopyIntoMaxInterval int    `json:"copyIntoMaxInterval" default:"5"`
+	DataFormat          string `json:"dataFormat" default:"json"`
+	Workers             int    `json:"workers" default:"1"`
 
 	// related docs: https://docs.databend.com/sql/sql-commands/dml/dml-copy-into-table
 	CopyPurge           bool `json:"copyPurge" default:"false"`

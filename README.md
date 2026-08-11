@@ -68,6 +68,8 @@ Config the config file `config/conf.json`
   "databendTable": "default.kfk_test",
   "batchSize": 1,
   "batchMaxInterval": 5,
+  "copyIntoFileCount": 128,
+  "copyIntoMaxInterval": 5,
   "dataFormat": "json",
   "workers": 1
 }
@@ -114,7 +116,8 @@ with `config/conf.json` and the table `default.kfk_test` will be created and the
 | databendTable         | databend table            | no                | "db1.tbl"                       |
 | batchSize             | batch size                | 1000              | 1000                            |
 | batchMaxInterval      | batch max interval (seconds)       | 30                  | 30                              |
-| copyIntoFileCount     | uploaded files loaded by each COPY INTO; each file still follows batchSize | 5 | 5 |
+| copyIntoFileCount     | max uploaded files loaded by each COPY INTO; each file still follows batchSize | 128 | 128 |
+| copyIntoMaxInterval   | max seconds the first uploaded pending file waits for COPY INTO; 0 disables time trigger | 5 | 5 |
 | dataFormat            | data format               | json              | "json"                          |
 | workers               | workers thread number     | 1                 | 1                               |
 | copyPurge             | copy purge                | false             | false                           |
