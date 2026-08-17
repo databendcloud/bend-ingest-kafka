@@ -68,9 +68,10 @@ func TestValidateConfig_SASLWithUser(t *testing.T) {
 func TestValidateConfig_CopyIntoFileCount(t *testing.T) {
 	zero := &config.Config{}
 	assert.NotPanics(t, func() { validateConfig(zero) })
-	assert.Equal(t, 5, zero.CopyIntoFileCount)
-	assert.NotPanics(t, func() { validateConfig(&config.Config{CopyIntoFileCount: 1}) })
+	assert.Equal(t, 128, zero.CopyIntoFileCount)
+	assert.NotPanics(t, func() { validateConfig(&config.Config{CopyIntoFileCount: 1, CopyIntoMaxInterval: 10}) })
 	assert.Panics(t, func() { validateConfig(&config.Config{CopyIntoFileCount: -1}) })
+	assert.Panics(t, func() { validateConfig(&config.Config{CopyIntoFileCount: 1, CopyIntoMaxInterval: -1}) })
 }
 
 func TestMockBatchReader(t *testing.T) {

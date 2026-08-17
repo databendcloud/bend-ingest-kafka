@@ -64,6 +64,32 @@ func (r *sequenceBatchReader) ReadBatch(context.Context) (*message.MessagesBatch
 }
 func (r *sequenceBatchReader) Close() error { r.closed = true; return nil }
 
+type blockingBatchReader struct {
+	readStarted chan struct{}
+	closed      bool
+}
+
+func (r *blockingBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
+	select {
+	case r.readStarted <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func (r *blockingBatchReader) Close() error { r.closed = true; return nil }
+
+type deadlinePartialBatchReader struct {
+	batch  *message.MessagesBatch
+	closed bool
+}
+
+func (r *deadlinePartialBatchReader) ReadBatch(ctx context.Context) (*message.MessagesBatch, error) {
+	<-ctx.Done()
+	return r.batch, nil
+}
+func (r *deadlinePartialBatchReader) Close() error { r.closed = true; return nil }
+
 func testBatch(offset int64, commits *[]int64) *message.MessagesBatch {
 	return &message.MessagesBatch{
 		Messages:           []message.MessageData{{Data: `{"v":1}`, DataOffset: offset, Partition: 0}},
@@ -182,6 +208,126 @@ func TestConsumeWorkerRetriesPendingCopyBeforeReadingMore(t *testing.T) {
 	assert.Len(t, reader.batches, 1, "retrying a full pending group must not read another Kafka batch")
 	assert.Equal(t, []int64{30, 31}, commits)
 	assert.Equal(t, 2, ig.staged)
+}
+
+func TestConsumeWorkerCopiesAtMaxIntervalWithoutNewMessages(t *testing.T) {
+	var commits []int64
+	ig := &batchingTestIngester{}
+	reader := &blockingBatchReader{readStarted: make(chan struct{}, 1)}
+	worker := &ConsumeWorker{
+		name: "interval-test",
+		cfg: &config.Config{
+			CopyIntoFileCount:   20,
+			CopyIntoMaxInterval: 1,
+			MaxRetryDelay:       1,
+		},
+		ig:            ig,
+		batchReader:   reader,
+		statsRecorder: NewDatabendConsumeStatsRecorder(),
+		pending: []pendingCopyBatch{{
+			batch:  testBatch(40, &commits),
+			staged: &StagedBatch{Stage: &godatabend.StageLocation{Name: "~", Path: "batch/file-40"}, Rows: 1, Bytes: 7, StartedAt: time.Now()},
+		}},
+	}
+
+	start := time.Now()
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.True(t, time.Since(start) >= 900*time.Millisecond)
+	assert.Len(t, ig.copyCalls, 1)
+	assert.Len(t, ig.copyCalls[0], 1)
+	assert.Equal(t, []int64{40}, commits)
+	assert.Empty(t, worker.pending)
+}
+
+func TestConsumeWorkerCopiesImmediatelyWhenIntervalAlreadyReached(t *testing.T) {
+	var commits []int64
+	ig := &batchingTestIngester{}
+	reader := &sequenceBatchReader{batches: []*message.MessagesBatch{testBatch(42, &commits)}}
+	worker := &ConsumeWorker{
+		name: "expired-interval-test",
+		cfg:  &config.Config{CopyIntoFileCount: 20, CopyIntoMaxInterval: 1, MaxRetryDelay: 1},
+		ig:   ig, batchReader: reader, statsRecorder: NewDatabendConsumeStatsRecorder(),
+		pending: []pendingCopyBatch{{
+			batch: testBatch(41, &commits), stagedAt: time.Now().Add(-2 * time.Second),
+			staged: &StagedBatch{Stage: &godatabend.StageLocation{Name: "~", Path: "batch/file-41"}, Rows: 1, Bytes: 7, StartedAt: time.Now()},
+		}},
+	}
+
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.Len(t, reader.batches, 1, "an expired group must flush before reading another Kafka batch")
+	assert.Equal(t, []int64{41}, commits)
+	assert.Len(t, ig.copyCalls, 1)
+}
+
+func TestConsumeWorkerFileCountWinsBeforeMaxInterval(t *testing.T) {
+	var commits []int64
+	ig := &batchingTestIngester{}
+	worker, _ := newBatchingWorker(2, []*message.MessagesBatch{testBatch(50, &commits), testBatch(51, &commits)}, ig)
+	worker.cfg.CopyIntoMaxInterval = 60
+
+	start := time.Now()
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.True(t, time.Since(start) < time.Second)
+	assert.Len(t, ig.copyCalls, 1)
+	assert.Len(t, ig.copyCalls[0], 2)
+	assert.Equal(t, []int64{50, 51}, commits)
+}
+
+func TestConsumeWorkerDisabledMaxIntervalKeepsPending(t *testing.T) {
+	var commits []int64
+	ig := &batchingTestIngester{}
+	worker, _ := newBatchingWorker(20, []*message.MessagesBatch{testBatch(60, &commits)}, ig)
+	worker.cfg.CopyIntoMaxInterval = 0
+
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.Len(t, worker.pending, 1)
+	assert.Empty(t, ig.copyCalls)
+	assert.Empty(t, commits)
+}
+
+func TestConsumeWorkerParentDeadlineDoesNotForceCopyEarly(t *testing.T) {
+	var commits []int64
+	ig := &batchingTestIngester{}
+	reader := &blockingBatchReader{readStarted: make(chan struct{}, 1)}
+	worker := &ConsumeWorker{
+		name: "parent-deadline-test",
+		cfg:  &config.Config{CopyIntoFileCount: 20, CopyIntoMaxInterval: 10, MaxRetryDelay: 1},
+		ig:   ig, batchReader: reader, statsRecorder: NewDatabendConsumeStatsRecorder(),
+		pending: []pendingCopyBatch{{
+			batch:  testBatch(70, &commits),
+			staged: &StagedBatch{Stage: &godatabend.StageLocation{Name: "~", Path: "batch/file-70"}, Rows: 1, Bytes: 7, StartedAt: time.Now()},
+		}},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	assert.NoError(t, worker.stepBatch(ctx))
+	assert.Empty(t, ig.copyCalls)
+	assert.Empty(t, commits)
+	assert.Len(t, worker.pending, 1)
+}
+
+func TestConsumeWorkerIntervalIncludesPartialBatchReadAtDeadline(t *testing.T) {
+	var commits []int64
+	ig := &batchingTestIngester{}
+	reader := &deadlinePartialBatchReader{batch: testBatch(81, &commits)}
+	worker := &ConsumeWorker{
+		name: "partial-interval-test",
+		cfg:  &config.Config{CopyIntoFileCount: 20, CopyIntoMaxInterval: 1, MaxRetryDelay: 1},
+		ig:   ig, batchReader: reader, statsRecorder: NewDatabendConsumeStatsRecorder(),
+		pending: []pendingCopyBatch{{
+			batch: testBatch(80, &commits), stagedAt: time.Now(),
+			staged: &StagedBatch{Stage: &godatabend.StageLocation{Name: "~", Path: "batch/file-80"}, Rows: 1, Bytes: 7, StartedAt: time.Now()},
+		}},
+	}
+
+	assert.NoError(t, worker.stepBatch(context.Background()))
+	assert.Equal(t, 1, ig.staged, "the partial Kafka batch must be uploaded before the timed COPY")
+	assert.Len(t, ig.copyCalls, 1)
+	assert.Len(t, ig.copyCalls[0], 2)
+	assert.Equal(t, []int64{80, 81}, commits)
+	assert.Empty(t, worker.pending)
 }
 
 func TestConsumeWorkerAggregationDoesNotAffectOtherModes(t *testing.T) {

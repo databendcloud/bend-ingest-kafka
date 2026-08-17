@@ -327,6 +327,91 @@ func TestCopyIntoFileAggregationGracefulShutdownE2E(t *testing.T) {
 	assert.Nil(t, batch)
 }
 
+func TestCopyIntoFileAggregationMaxIntervalE2E(t *testing.T) {
+	consumeTopic := fmt.Sprintf("copy_into_interval_e2e_%d", time.Now().UnixNano())
+	tableName := fmt.Sprintf("copy_into_interval_e2e_%d", time.Now().UnixNano())
+	tt := prepareConsumeWorkerTest(consumeTopic, 1)
+	produceMessages(t, tt.kafkaBrokers[0], consumeTopic, 3)
+
+	db, err := sql.Open("databend", tt.databendDSN)
+	assert.NoError(t, err)
+	defer db.Close()
+	assert.NoError(t, execute(db, fmt.Sprintf(`CREATE OR REPLACE TABLE %s (
+		i64 Int64, u64 UInt64, f64 Float64, s String, s2 String,
+		a16 Array(Int16), a8 Array(UInt8), d Date, t DateTime)`, tableName)))
+	if t.Failed() {
+		t.FailNow()
+	}
+	defer execute(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+
+	cfg := &config.Config{
+		DatabendDSN:           tt.databendDSN,
+		DatabendTable:         tableName,
+		KafkaTopic:            consumeTopic,
+		KafkaBootstrapServers: tt.kafkaBrokers[0],
+		KafkaConsumerGroup:    fmt.Sprintf("copy-interval-e2e-%d", time.Now().UnixNano()),
+		IsJsonTransform:       true,
+		BatchSize:             1,
+		BatchMaxInterval:      2,
+		CopyIntoFileCount:     128,
+		CopyIntoMaxInterval:   5,
+		UserStage:             "~",
+		CopyPurge:             true,
+		MinBytes:              1,
+		MaxWait:               1,
+		DisableTLS:            true,
+		MaxRetryDelay:         5,
+	}
+	ingester := NewDatabendIngester(cfg)
+	defer ingester.Close()
+	worker := NewConsumeWorker(cfg, "copy-interval-e2e", ingester)
+
+	for i := 0; i < 3; i++ {
+		assert.NoError(t, worker.stepBatch(context.Background()))
+		if t.Failed() {
+			t.FailNow()
+		}
+	}
+	var before int
+	assert.NoError(t, db.QueryRow(fmt.Sprintf("SELECT count(*) FROM %s", tableName)).Scan(&before))
+	assert.Equal(t, 0, before, "three files must not meet copyIntoFileCount=128")
+
+	start := time.Now()
+	assert.NoError(t, worker.stepBatch(context.Background())) // no Kafka data; timer must flush
+	assert.True(t, time.Since(start) < 7*time.Second)
+	var after int
+	assert.NoError(t, db.QueryRow(fmt.Sprintf("SELECT count(*) FROM %s", tableName)).Scan(&after))
+	assert.Equal(t, 3, after)
+
+	worker.Close()
+	reader := NewKafkaBatchReader(cfg)
+	defer reader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	batch, readErr := reader.ReadBatch(ctx)
+	assert.True(t, errors.Is(readErr, context.DeadlineExceeded))
+	assert.Nil(t, batch, "timer-triggered COPY must commit all corresponding Kafka offsets")
+}
+
+func produceMessages(t *testing.T, broker, topic string, count int) {
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": broker})
+	assert.NoError(t, err)
+	defer producer.Close()
+	for i := 0; i < count; i++ {
+		delivery := make(chan kafka.Event, 1)
+		err = producer.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0},
+			Key:            []byte("name"),
+			Value:          []byte(`{"i64":10,"u64":30,"f64":20,"s":"hao","s2":"hello","a16":[1],"a8":[2],"d":"2011-03-06","t":"2016-04-04 11:30:00"}`),
+		}, delivery)
+		assert.NoError(t, err)
+		event := <-delivery
+		msg := event.(*kafka.Message)
+		assert.NoError(t, msg.TopicPartition.Error)
+	}
+	assert.Equal(t, 0, producer.Flush(5000))
+}
+
 func TestCopyIntoFileCountStressE2E(t *testing.T) {
 	if os.Getenv("RUN_STRESS_E2E") != "1" {
 		t.Skip("set RUN_STRESS_E2E=1 to run the 100k-message full-chain stress test")
@@ -356,6 +441,7 @@ func TestCopyIntoFileCountStressE2E(t *testing.T) {
 		BatchSize:                 batchSize,
 		BatchMaxInterval:          10,
 		CopyIntoFileCount:         copyIntoFileCount,
+		CopyIntoMaxInterval:       5,
 		Workers:                   1,
 		UserStage:                 "~",
 		CopyPurge:                 true,
