@@ -40,11 +40,11 @@ jobs:
       # startup. Use a pinned container instead, keeping S3/presign coverage.
       - name: Start MinIO and Databend
         run: |
-          docker run -d --name ci-minio --network host \
+          docker run -d --name ci-minio --network host --user 0:0 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
             --entrypoint /bin/sh \
-            minio/minio:RELEASE.2024-10-13T13-34-11Z \
+            bitnamilegacy/minio:2025.7.23 \
             -c 'mkdir -p /data/databend && exec minio server /data'
           curl --fail --silent --show-error --retry 30 --retry-delay 2 \
             --retry-all-errors --max-time 5 --retry-max-time 120 \
