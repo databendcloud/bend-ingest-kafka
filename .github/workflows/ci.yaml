@@ -10,15 +10,6 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     services:
-      databend:
-        image: datafuselabs/databend
-        env:
-          QUERY_DEFAULT_USER: databend
-          QUERY_DEFAULT_PASSWORD: databend
-          MINIO_ENABLED: true
-        ports:
-          - 8000:8000
-          - 9000:9000
       kafka:
         image: apache/kafka:4.0.0
         ports:
@@ -43,17 +34,35 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.23'
+          go-version: '1.24'
 
-      - name: Verify Service Running
+      # The all-in-one image's MINIO_ENABLED path downloads a binary at
+      # startup. Use a pinned container instead, keeping S3/presign coverage.
+      - name: Start MinIO and Databend
         run: |
-          sleep 60
-          cid=$(docker ps -a | grep databend | cut -d' ' -f1)
-          docker logs ${cid}
-          cid=$(docker ps -a | grep kafka | cut -d' ' -f1)
-          docker logs ${cid}
-          netstat -nlp
-          curl -v http://localhost:8000/v1/health
+          docker run -d --name ci-minio --network host --user 0:0 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            --entrypoint /bin/sh \
+            bitnamilegacy/minio:2025.7.23 \
+            -c 'mkdir -p /data/databend && exec minio server /data'
+          curl --fail --silent --show-error --retry 30 --retry-delay 2 \
+            --retry-all-errors --max-time 5 --retry-max-time 120 \
+            http://127.0.0.1:9000/minio/health/ready
+          docker run -d --name ci-databend --network host \
+            -e QUERY_DEFAULT_USER=databend \
+            -e QUERY_DEFAULT_PASSWORD=databend \
+            -e QUERY_STORAGE_TYPE=s3 \
+            -e AWS_S3_ENDPOINT=http://127.0.0.1:9000 \
+            -e AWS_S3_BUCKET=databend \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin \
+            datafuselabs/databend
+          curl --fail --silent --show-error --retry 30 --retry-delay 2 \
+            --retry-all-errors --max-time 5 --retry-max-time 120 \
+            --user databend:databend --header 'Content-Type: application/json' \
+            --data '{"sql":"SELECT 1"}' http://127.0.0.1:8000/v1/query \
+            | jq -e '.error == null and .data == [["1"]]'
 
       - name: Test
         env:
@@ -62,3 +71,10 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           go test -v -p 1 -cover $(go list ./... | grep -v /scripts)
+
+      - name: Service logs
+        if: always()
+        run: |
+          docker logs --tail 200 ci-minio 2>&1 || true
+          docker logs --tail 200 ci-databend 2>&1 || true
+          docker logs --tail 200 '${{ job.services.kafka.id }}' 2>&1 || true
